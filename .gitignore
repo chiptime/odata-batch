@@ -1,5 +1,6 @@
 gen/
 node_modules/
 test/
+dist/
 
 .idea

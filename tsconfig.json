@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    // Target for node 14.X
+    "lib": [
+      "es2020"
+    ],
+    "module": "commonjs",
+    "target": "es2020",
+    //
+    "noImplicitAny": false,
+    "removeComments": true,
+    "preserveConstEnums": true,
+    "declaration": true,
+    "noUnusedLocals": false,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedParameters": false,
+    "pretty": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    // "allowJs": true,
+    "sourceMap": true,
+    "outDir": "dist",
+  },
+  // "include": [
+  //   "srv",
+  //   "types"
+  // ]
+}

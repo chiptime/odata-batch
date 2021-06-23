@@ -1,0 +1,19 @@
+{
+    "restartable": "rs",
+    "ignore": [
+        ".git",
+        "node_modules/",
+        "dist/",
+        "coverage/"
+    ],
+    "exec": "tsc --project tsconfig.json && node --inspect=$NODE_DEBUG_PORT dist/test/ssff.js",
+    "watch": [
+        "./"
+    ],
+    "env": {
+        "PORT": 3000,
+        "NODE_ENV": "local"
+    },
+    "ext": "js,json,ts",
+    "legacyWatch": true
+}

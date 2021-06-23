@@ -1,0 +1,42 @@
+{
+  "name": "odata-batch",
+  "version": "1.0.0",
+  "description": "a simple lib for send and recieve calls odata batch ",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "watch": "NODE_DEBUG_PORT=9230 PORT=3000 nodemon --config nodemon.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chiptime/odata-batch.git"
+  },
+  "keywords": [
+    "odata",
+    "oData",
+    "v2",
+    "v3",
+    "v4",
+    "odata2",
+    "odata3",
+    "odata4",
+    "batch",
+    "operation",
+    "batchcall",
+    "sap"
+  ],
+  "author": "Bruno Ivan Silva Narro",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/chiptime/odata-batch/issues"
+  },
+  "homepage": "https://github.com/chiptime/odata-batch#readme",
+  "devDependencies": {
+    "@types/node": "^15.12.4",
+    "nodemon": "^2.0.7",
+    "typescript": "^4.3.4"
+  },
+  "dependencies": {
+    "axios": "0.21.1"
+  }
+}

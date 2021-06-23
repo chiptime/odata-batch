@@ -6,9 +6,9 @@
         "dist/",
         "coverage/"
     ],
-    "exec": "tsc --project tsconfig.json && node --inspect=$NODE_DEBUG_PORT dist/test/ssff.js",
+    "exec": "tsc --project tsconfig.json && node --inspect dist/test/ssff.js",
     "watch": [
-        "./"
+        "src/"
     ],
     "env": {
         "PORT": 3000,

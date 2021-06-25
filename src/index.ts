@@ -1,5 +1,5 @@
 import { requestsToBatch } from './request';
-import { batchToResponses } from './response';
+import { BatchResponse } from './response';
 import { ODataBatchRepository } from './BatchRepository'
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
 
@@ -8,8 +8,10 @@ export class ODataBatch {
     private url: string;
     private boundary: string;
     private batchRequest: string;
-    private batchResponseType: string;
-    private individualResponseType: string;
+    private requestResponseType: {
+        contentType: string;
+        accept: string;
+    };
     private batchRepository: ODataBatchRepository;
 
     constructor(
@@ -32,34 +34,38 @@ export class ODataBatch {
 
         this.ensureHasCalls(calls);
 
-        this.batchResponseType = batchResponseType === 'json' ? 'application/json' : 'application/xml';
-        this.individualResponseType = individualResponseType === 'json' ? 'application/json' : 'application/xml';
-
-        const requestResponseType = {
-            contentType: this.batchResponseType,
-            accept: this.individualResponseType,
-        };
-
         this.boundary = new Date().getTime().toString();
-        this.batchRequest = requestsToBatch(calls, this.boundary, requestResponseType);
 
         this.auth = auth;
         this.url = url;
         this.batchRepository = batchRepository;
+
+        this.requestResponseType = {
+            contentType:  batchResponseType === 'json' ? 'application/json' : 'application/xml',
+            accept:  individualResponseType === 'json' ? 'application/json' : 'application/xml',
+        };
+
+        this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
     }
 
-    public async invoke() {
+    public async send() {
         const config = {
             headers: {
                 Authorization: `Basic ${this.auth}`,
-                Accept: this.batchResponseType,
+                Accept: this.requestResponseType.accept,
                 'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary
             },
         };
 
-        const response = await this.batchRepository.send(this.url, this.batchRequest, config);
+        const response = await this.batchRepository.send(
+            this.url,
+            this.batchRequest,
+            config,
+            this.requestResponseType.accept,
+            BatchResponse
+        );
 
-        return batchToResponses(response);
+        return response;
     }
 
     private ensureHasCalls(data: any[]) {

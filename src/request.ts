@@ -14,7 +14,7 @@ export const requestsToBatch = function (data, boundary, { contentType, accept }
             `Content-Type: ${contentType}`,
             `Accept: ${accept}`,
             '',
-            JSON.stringify(val.data),
+            contentType === 'application/xml' ? val.data : JSON.stringify(val.data),
             '',
         ]
     });

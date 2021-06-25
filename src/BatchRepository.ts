@@ -1,5 +1,12 @@
+import { BatchResponseConstructor } from "./response";
 
 export interface ODataBatchRepository {
-    send: any;
+    send(
+        url: string,
+        batchRequest: string,
+        config: any,
+        accept: string,
+        BatchParser: BatchResponseConstructor
+    ): Promise<any>
 }
 

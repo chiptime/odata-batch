@@ -1,6 +1,7 @@
-import axios from 'axios';
 import { requestsToBatch } from './request';
 import { batchToResponses } from './response';
+import { ODataBatchRepository } from './BatchRepository'
+import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
 
 export class ODataBatch {
     private auth: string;
@@ -9,6 +10,7 @@ export class ODataBatch {
     private batchRequest: string;
     private batchResponseType: string;
     private individualResponseType: string;
+    private batchRepository: ODataBatchRepository;
 
     constructor(
         {
@@ -24,13 +26,15 @@ export class ODataBatch {
                 calls?: any,
                 batchResponseType?: string,
                 individualResponseType?: string
-            }
+            },
+        batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
 
         this.ensureHasCalls(calls);
 
         this.batchResponseType = batchResponseType === 'json' ? 'application/json' : 'application/xml';
         this.individualResponseType = individualResponseType === 'json' ? 'application/json' : 'application/xml';
+
         const requestResponseType = {
             contentType: this.batchResponseType,
             accept: this.individualResponseType,
@@ -41,6 +45,7 @@ export class ODataBatch {
 
         this.auth = auth;
         this.url = url;
+        this.batchRepository = batchRepository;
     }
 
     public async invoke() {
@@ -52,7 +57,7 @@ export class ODataBatch {
             },
         };
 
-        const response = await axios.post(this.url, this.batchRequest, config);
+        const response = await this.batchRepository.send(this.url, this.batchRequest, config);
 
         return batchToResponses(response);
     }

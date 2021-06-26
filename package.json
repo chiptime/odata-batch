@@ -1,6 +1,6 @@
 {
   "name": "odata-batch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "a simple lib for send and recieve calls odata batch ",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -9,6 +9,7 @@ This module formats both the request and response of batch operations. It suppor
 ## Example
 You only need to generate an array with the requests you want to send, the requests will be returned in the same order as in the array.
 
+    const { ODataBatch } = require('odata-batch')
 
     const calls = [
         {
@@ -66,8 +67,11 @@ Additionally, to respect the typescript typing, we use a `createBatchResponse` f
 
 
     import axios, { AxiosRequestConfig } from 'axios';
-    import { ODataBatchRepository } from "./    BatchRepository";
-    import { createBatchResponse,     BatchResponseConstructor } from './response';
+    import {
+        ODataBatchRepository,
+        createBatchResponse,
+        BatchResponseConstructor
+        } from "odata-batch";
 
     export class ODataBatchAxiosRepository implements     ODataBatchRepository {
         async send(
@@ -79,6 +83,8 @@ Additionally, to respect the typescript typing, we use a `createBatchResponse` f
         ): Promise<any> {
 
             const request = await axios.post(url,     batchRequest, config);
+
+            console.log('from custom adapter');
 
             return createBatchResponse(BatchParser,     request, accept).response;
         }

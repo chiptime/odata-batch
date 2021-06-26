@@ -27,8 +27,7 @@
     "sourceMap": true,
     "outDir": "dist",
   },
-  // "include": [
-  //   "srv",
-  //   "types"
-  // ]
+  "include": [
+    "src"
+  ]
 }

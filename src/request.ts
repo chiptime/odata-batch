@@ -10,7 +10,7 @@ export const requestsToBatch = function (data, boundary, { contentType, accept }
             'Content-Transfer-Encoding: binary',
             '',
 
-            val.requestType.toUpperCase() + ' ' + val.crudWhereClause + ' HTTP/1.1',
+            val.method.toUpperCase() + ' ' + val.url + ' HTTP/1.1',
             `Content-Type: ${contentType}`,
             `Accept: ${accept}`,
             '',

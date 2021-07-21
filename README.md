@@ -13,28 +13,49 @@ You only need to generate an array with the requests you want to send, the reque
 
     const calls = [
         {
-            "method": "POST",
+            "method": "PUT",
             "url": "https://****",
             "data": {
                 "__metadata": {
-                    "uri": "Candidate('202')"
+                    "uri": "Candidate('200')"
+                },
+                "name": "Sebastian"
+            }
+        },
+        {
+            "method": "PUT",
+            "url": "https://****",
+            "data": {
+                "__metadata": {
+                    "uri": "Candidate('201')"
                 },
                 "name": "Bruno"
             }
         },
         {
-            "method": "GET",
-            "url": "https://****"
+            "method": "POST",
+            "url": "https://****",
+            "data": {
+                "__metadata": {
+                    "uri": "Candidate"
+                },
+                "name": "Test"
+            }
         },
-        {
-            "method": "GET",
-            "url": "https://****"
-        }
     ];
+
+    // Can add your own headers. Authorization header will be override auth param. Accept and Content-type headers will be ignored.
+    const headers = {
+        'Accept-Charset': 'utf-8',
+        'Accept-Encoding': 'gzip, deflate',
+        'Accept-Language': 'en-US',
+        'Cache-Control': 'no-cache'
+    };
 
     const config = {
         url: `https://*****/$batch`,
-        auth: '******', // base64 string for basic     auth
+        headers,
+        auth: '******', // base64 string for basic auth
         calls,
     };
 

@@ -5,6 +5,7 @@ import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
 
 export class ODataBatch {
     private auth: string;
+    private headers: any;
     private url: string;
     private boundary: string;
     private batchRequest: string;
@@ -17,6 +18,7 @@ export class ODataBatch {
     constructor(
         {
             url,
+            headers,
             auth,
             calls,
             batchResponseType = 'json',
@@ -24,6 +26,7 @@ export class ODataBatch {
         }:
             {
                 url: string,
+                headers?: any;
                 auth: string,
                 calls?: any,
                 batchResponseType?: string,
@@ -36,36 +39,37 @@ export class ODataBatch {
 
         this.boundary = new Date().getTime().toString();
 
+        this.headers = headers;
         this.auth = auth;
         this.url = url;
         this.batchRepository = batchRepository;
 
         this.requestResponseType = {
-            contentType:  batchResponseType === 'json' ? 'application/json' : 'application/xml',
-            accept:  individualResponseType === 'json' ? 'application/json' : 'application/xml',
+            contentType: batchResponseType === 'json' ? 'application/json' : 'application/xml',
+            accept: individualResponseType === 'json' ? 'application/json' : 'application/xml',
         };
 
         this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
     }
 
-    public async send() {
+    public send() {
         const config = {
             headers: {
-                Authorization: `Basic ${this.auth}`,
+                ...this.headers,
+
+                Authorization: this.headers.Authorization || `Basic ${this.auth}`,
                 Accept: this.requestResponseType.accept,
                 'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary
             },
         };
 
-        const response = await this.batchRepository.send(
+        return this.batchRepository.send(
             this.url,
             this.batchRequest,
             config,
             this.requestResponseType.accept,
             BatchResponse
         );
-
-        return response;
     }
 
     private ensureHasCalls(data: any[]) {

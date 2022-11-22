@@ -57,7 +57,7 @@ export class ODataBatch {
             headers: {
                 ...this.headers,
 
-                Authorization: this.headers.Authorization || `Basic ${this.auth}`,
+                Authorization: this.headers?.Authorization || `Basic ${this.auth}`,
                 Accept: this.requestResponseType.accept,
                 'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary
             },

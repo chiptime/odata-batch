@@ -1,22 +1,50 @@
 import { flatten } from "./utils";
 
+
 export const requestsToBatch = function (data, boundary, { contentType, accept }) {
     const changeSetNum = Math.random() * 100;
 
+    const parseHeaders = (headers) => {
+        if (!headers) {
+            return [
+                `Content-Type: ${contentType}`,
+                `Accept: ${accept}`,
+            ];
+        }
+
+        const _headers = Object.entries(headers).map(h => {
+            const [header, value] = h;
+
+            if (header.toLowerCase() === 'content-type' && contentType) {
+                return `Content-Type: ${contentType}`;
+            }
+
+            if (header.toLowerCase() === 'accept' && accept) {
+                return `Accept: ${accept}`;
+            }
+
+            return header + ': ' + value;
+        });
+
+        return _headers;
+    };
+
     const aBatchByResponse = data.map(function (val) {
-        return [
+
+        const headers = parseHeaders(val.headers);
+
+        return flatten([
             '--changeset_' + changeSetNum,
             'Content-Type: application/http',
             'Content-Transfer-Encoding: binary',
             '',
 
             val.method.toUpperCase() + ' ' + val.url + ' HTTP/1.1',
-            `Content-Type: ${contentType}`,
-            `Accept: ${accept}`,
+            headers,
             '',
             contentType === 'application/xml' ? val.data : JSON.stringify(val.data),
             '',
-        ]
+        ]);
     });
 
     return flatten([

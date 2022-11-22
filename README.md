@@ -15,6 +15,11 @@ You only need to generate an array with the requests you want to send, the reque
         {
             "method": "PUT",
             "url": "https://****",
+            "headers": {
+                "Content-Type": "application/json;charset=UTF-8;IEEE754Compatible=true",
+                "Accept": "application/json;charset=UTF-8;IEEE754Compatible=true",
+                "IF-Match": "*"
+            },
             "data": {
                 "__metadata": {
                     "uri": "Candidate('200')"

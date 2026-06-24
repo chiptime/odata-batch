@@ -39,7 +39,7 @@ export class DummyBatchRepo implements ODataBatchRepository {
  */
 export function makeRandomMock(value: number): () => void {
     const original = Math.random;
-    Math.random = jest.fn(() => value);
+    Math.random = jest.fn(() => value / 100);
     return () => {
         Math.random = original;
     };

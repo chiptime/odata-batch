@@ -3,9 +3,10 @@ import { flatten } from './utils';
 export interface BatchResponseParsed {
     code: string;
     status: string;
-    headers: { key: string; value: string; }[];
+    headers: { key: string; value: string }[];
     data: any[];
     success: boolean;
+    changesetIndex?: number;
 }
 
 export interface BatchResponseInterface {
@@ -13,13 +14,13 @@ export interface BatchResponseInterface {
 }
 
 export interface BatchResponseConstructor {
-    new(OResponse: { data, headers }, accept: string,): BatchResponseInterface;
+    new (OResponse: { data; headers }, accept: string): BatchResponseInterface;
 }
 
 export function createBatchResponse(
     ctor: BatchResponseConstructor,
-    OResponse: { data, headers },
-    accept: string,
+    OResponse: { data; headers },
+    accept: string
 ): BatchResponseInterface {
     return new ctor(OResponse, accept);
 }
@@ -39,25 +40,24 @@ export class BatchResponse implements BatchResponseInterface {
 
     ensureHasAccept() {
         if (!this.accept) {
-            throw new Error('Need accept to know how parse.')
+            throw new Error('Need accept to know how parse.');
         }
     }
 
-
     parseResponse(part: string): BatchResponseParsed {
-        const responseParts = part.split("\r\n\r\n");
+        const responseParts = part.split('\r\n\r\n');
         //responseParts[1] are headers for the part
         //responseParts[2] is the responses code and headers
         //responseParts[3] is data
 
-        const httpResponseWithHeaders = responseParts[1].split("\r\n");
+        const httpResponseWithHeaders = responseParts[1].split('\r\n');
 
-        const regCodeAndStatus = RegExp("HTTP/1.1 ([0-9]{3}) (.+)");
+        const regCodeAndStatus = RegExp('HTTP/1.1 ([0-9]{3}) (.+)');
 
         const headers = httpResponseWithHeaders
             .filter((header: string) => !regCodeAndStatus.test(header))
             .map((header: string) => {
-                const headerKeyAndValue = header.match("(.+): (.+)");
+                const headerKeyAndValue = header.match('(.+): (.+)');
                 if (!headerKeyAndValue) {
                     return {
                         key: '',
@@ -67,21 +67,20 @@ export class BatchResponse implements BatchResponseInterface {
 
                 return {
                     key: headerKeyAndValue[1],
-                    value: headerKeyAndValue[2]
+                    value: headerKeyAndValue[2],
                 };
-            })
+            });
 
-        const httpCodeAndDesc = httpResponseWithHeaders[0]
-            .match(regCodeAndStatus);
+        const httpCodeAndDesc = httpResponseWithHeaders[0].match(regCodeAndStatus);
 
-        const code = httpCodeAndDesc && httpCodeAndDesc[1] || '';
-        const success = code.substring(0, 1) != "4" && code.substring(0, 1) != "5";
+        const code = (httpCodeAndDesc && httpCodeAndDesc[1]) || '';
+        const success = code.substring(0, 1) != '4' && code.substring(0, 1) != '5';
 
         const data = this.parseData(responseParts[2]);
 
         return {
             code,
-            status: httpCodeAndDesc && httpCodeAndDesc[2] || '',
+            status: (httpCodeAndDesc && httpCodeAndDesc[2]) || '',
             headers,
             data,
             success,
@@ -100,32 +99,43 @@ export class BatchResponse implements BatchResponseInterface {
 
     parseBatch(body: string): BatchResponseParsed[] {
         //Split the batch result into its associated parts
-        const batchParts = body.split(RegExp("--" + this.boundary + "(?:\r\n)?(?:--\r\n)?"));
+        const batchParts = body.split(RegExp('--' + this.boundary + '(?:\r\n)?(?:--\r\n)?'));
 
         const parseResponses = batchParts
-            .filter((batchPart: string) => RegExp("^content-type", "i").test(batchPart))
-            .map((batchPart: string) => {
+            .filter((batchPart: string) => RegExp('^content-type', 'i').test(batchPart))
+            .flatMap((batchPart: string, changesetIndex: number) => {
                 // For each batch part, check to see if the part is a changeset.
-                const boundary = batchPart.match(RegExp("boundary=(.+)", "m"));
+                const boundary = batchPart.match(RegExp('boundary=(.+)', 'm'));
                 if (!boundary) {
-                    return batchPart;
+                    // No boundary found - return raw part with current changesetIndex
+                    return [{ part: batchPart, changesetIndex }];
                 }
 
                 const changeSetBoundary = boundary[1];
 
-                const changeSetBody = batchPart
-                    .match(RegExp("(--" + changeSetBoundary + "\r\n[^]+--" + changeSetBoundary + ")", "i"));
+                const changeSetBody = batchPart.match(
+                    RegExp('(--' + changeSetBoundary + '\r\n[^]+--' + changeSetBoundary + ')', 'i')
+                );
 
-                const changeSetParts = changeSetBody && changeSetBody[1]
-                    .split(RegExp("--" + changeSetBoundary + "(?:\r\n)?(?:--\r\n)?")) || [];
+                const changeSetParts =
+                    (changeSetBody &&
+                        changeSetBody[1].split(RegExp('--' + changeSetBoundary + '(?:\r\n)?(?:--\r\n)?'))) ||
+                    [];
 
-                return changeSetParts.filter((p: any) => p);
+                // Return each changeset part with its changesetIndex
+                return changeSetParts.filter((p: any) => p).map((part: any) => ({
+                    part,
+                    changesetIndex,
+                }));
             });
 
-        return flatten(parseResponses).map(p => this.parseResponse(p));
+        return parseResponses.map(({ part, changesetIndex }) => ({
+            ...this.parseResponse(part),
+            changesetIndex,
+        }));
     }
 
-    getBoundary(headers: { [x: string]: any; }): any {
+    getBoundary(headers: { [x: string]: any }): any {
         const contentType = headers['content-type'];
         const boundaryMatch = contentType.match(/boundary=([^;]+)/);
 

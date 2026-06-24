@@ -1,6 +1,6 @@
-import { requestsToBatch } from './request';
+import { requestsToBatch, Call } from './request';
 import { BatchResponse } from './response';
-import { ODataBatchRepository } from './BatchRepository'
+import { ODataBatchRepository } from './BatchRepository';
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
 
 export class ODataBatch {
@@ -22,19 +22,17 @@ export class ODataBatch {
             auth,
             calls,
             batchResponseType = 'json',
-            individualResponseType = 'json'
-        }:
-            {
-                url: string,
-                headers?: any;
-                auth: string,
-                calls?: any,
-                batchResponseType?: string,
-                individualResponseType?: string
-            },
+            individualResponseType = 'json',
+        }: {
+            url: string;
+            headers?: any;
+            auth: string;
+            calls?: Call[] | Call[][];
+            batchResponseType?: string;
+            individualResponseType?: string;
+        },
         batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
-
         this.ensureHasCalls(calls);
 
         this.boundary = new Date().getTime().toString();
@@ -49,7 +47,7 @@ export class ODataBatch {
             accept: individualResponseType === 'json' ? 'application/json' : 'application/xml',
         };
 
-        this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
+        this.batchRequest = requestsToBatch(calls!, this.boundary, this.requestResponseType);
     }
 
     public send() {
@@ -59,7 +57,7 @@ export class ODataBatch {
 
                 Authorization: this.headers?.Authorization || `Basic ${this.auth}`,
                 Accept: this.requestResponseType.accept,
-                'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary
+                'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary,
             },
         };
 
@@ -72,9 +70,18 @@ export class ODataBatch {
         );
     }
 
-    private ensureHasCalls(data: any[]) {
-        if (data.length <= 0) {
+    private ensureHasCalls(data: Call[] | Call[][] | undefined) {
+        if (!data || data.length <= 0) {
             throw new Error('No calls have been passed');
+        }
+
+        // If it's a multi-changeset format, check each sub-array
+        if (Array.isArray(data[0])) {
+            (data as Call[][]).forEach((cs, i) => {
+                if (cs.length === 0) {
+                    throw new Error('No calls have been passed');
+                }
+            });
         }
     }
 }

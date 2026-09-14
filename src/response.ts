@@ -1,10 +1,9 @@
-import { flatten } from './utils';
-
 export interface BatchResponseParsed {
     code: string;
     status: string;
     headers: { key: string; value: string }[];
-    data: any[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed payload is caller-defined
+    data: any;
     success: boolean;
     changesetIndex?: number;
 }
@@ -14,12 +13,12 @@ export interface BatchResponseInterface {
 }
 
 export interface BatchResponseConstructor {
-    new (OResponse: { data; headers }, accept: string): BatchResponseInterface;
+    new (OResponse: { data: string; headers: Record<string, string> }, accept: string): BatchResponseInterface;
 }
 
 export function createBatchResponse(
     ctor: BatchResponseConstructor,
-    OResponse: { data; headers },
+    OResponse: { data: string; headers: Record<string, string> },
     accept: string
 ): BatchResponseInterface {
     return new ctor(OResponse, accept);
@@ -29,7 +28,7 @@ export class BatchResponse implements BatchResponseInterface {
     private accept: string;
     response: BatchResponseParsed[];
 
-    constructor({ data, headers }: any, accept: string) {
+    constructor({ data, headers }: { data: string; headers: Record<string, string> }, accept: string) {
         this.accept = accept;
         this.ensureHasAccept();
 
@@ -38,7 +37,7 @@ export class BatchResponse implements BatchResponseInterface {
         this.response = this.parseBatch(data);
     }
 
-    ensureHasAccept() {
+    ensureHasAccept(): void {
         if (!this.accept) {
             throw new Error('Need accept to know how parse.');
         }
@@ -87,6 +86,7 @@ export class BatchResponse implements BatchResponseInterface {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed payload is caller-defined
     parseData(sData: string): any {
         if (this.accept === 'application/json') {
             return JSON.parse(sData);
@@ -94,7 +94,7 @@ export class BatchResponse implements BatchResponseInterface {
 
         // /.*/ always matches a string (returning the first line, since '.'
         // excludes '\n'), so no null fallback is needed here
-        const parts = sData.match(/.*/)!;
+        const parts = sData.match(/.*/) as RegExpMatchArray;
 
         return parts[0];
     }
@@ -126,8 +126,8 @@ export class BatchResponse implements BatchResponseInterface {
 
                 // Return each changeset part with its changesetIndex
                 return changeSetParts
-                    .filter((p: any) => p)
-                    .map((part: any) => ({
+                    .filter((p: string) => p)
+                    .map((part: string) => ({
                         part,
                         changesetIndex,
                     }));
@@ -150,10 +150,10 @@ export class BatchResponse implements BatchResponseInterface {
 
         // RFC 2046 allows quoted boundary parameters; the quotes are not
         // part of the delimiter used in the body
-        return boundaryMatch![1].replace(/^"(.*)"$/, '$1');
+        return boundaryMatch[1].replace(/^"(.*)"$/, '$1');
     }
 
-    ensureHasBoundary(boundaryMatch: RegExpExecArray): void {
+    ensureHasBoundary(boundaryMatch: RegExpMatchArray | null): asserts boundaryMatch is RegExpMatchArray {
         if (!boundaryMatch) {
             throw new Error('Bad content-type header, no multipart boundary');
         }

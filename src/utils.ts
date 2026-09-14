@@ -1,3 +1,3 @@
-export function flatten(arr: any): any[] {
-    return ([] as any[]).concat(...arr);
+export function flatten<T>(arr: (T | T[])[]): T[] {
+    return ([] as T[]).concat(...arr);
 }

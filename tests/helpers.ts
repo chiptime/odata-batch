@@ -14,8 +14,8 @@ export class DummyBatchRepo implements ODataBatchRepository {
         url: string,
         batchRequest: string,
         config: any,
-        accept: string,
-        parser: BatchResponseConstructor
+        _accept: string,
+        _parser: BatchResponseConstructor
     ): Promise<any> {
         this.lastUrl = url;
         this.lastRequest = batchRequest;

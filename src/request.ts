@@ -3,14 +3,19 @@ import { flatten } from './utils';
 export interface Call {
     method: string;
     url: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload is caller-defined: JSON-serializable value or raw string
     data: any;
-    headers?: Record<string, string>;
+    headers?: Record<string, string | number>;
 }
 
-export const requestsToBatch = function (data: Call[] | Call[][], boundary, { contentType, accept }) {
+export const requestsToBatch = function (
+    data: Call[] | Call[][],
+    boundary: string,
+    { contentType, accept }: { contentType?: string; accept?: string }
+): string {
     const changeSetNum = Math.random() * 100;
 
-    const parseHeaders = (headers) => {
+    const parseHeaders = (headers?: Record<string, string | number>): string[] => {
         if (!headers) {
             return [`Content-Type: ${contentType}`, `Accept: ${accept}`];
         }

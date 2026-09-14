@@ -1,11 +1,11 @@
 import { requestsToBatch, Call } from './request';
-import { BatchResponse } from './response';
+import { BatchResponse, BatchResponseParsed } from './response';
 import { ODataBatchRepository } from './BatchRepository';
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
 
 export class ODataBatch {
     private auth: string;
-    private headers: any;
+    private headers: Record<string, string> | undefined;
     private url: string;
     private boundary: string;
     private batchRequest: string;
@@ -25,7 +25,7 @@ export class ODataBatch {
             individualResponseType = 'json',
         }: {
             url: string;
-            headers?: any;
+            headers?: Record<string, string>;
             auth: string;
             calls?: Call[] | Call[][];
             batchResponseType?: string;
@@ -47,10 +47,10 @@ export class ODataBatch {
             accept: individualResponseType === 'json' ? 'application/json' : 'application/xml',
         };
 
-        this.batchRequest = requestsToBatch(calls!, this.boundary, this.requestResponseType);
+        this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
     }
 
-    public send() {
+    public send(): Promise<BatchResponseParsed[]> {
         const config = {
             headers: {
                 ...this.headers,
@@ -70,14 +70,14 @@ export class ODataBatch {
         );
     }
 
-    private ensureHasCalls(data: Call[] | Call[][] | undefined) {
+    private ensureHasCalls(data: Call[] | Call[][] | undefined): asserts data is Call[] | Call[][] {
         if (!data || data.length <= 0) {
             throw new Error('No calls have been passed');
         }
 
         // If it's a multi-changeset format, check each sub-array
         if (Array.isArray(data[0])) {
-            (data as Call[][]).forEach((cs, i) => {
+            (data as Call[][]).forEach((cs) => {
                 if (cs.length === 0) {
                     throw new Error('No calls have been passed');
                 }

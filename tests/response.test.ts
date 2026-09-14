@@ -155,8 +155,6 @@ Content-Type: application/json
             expect(Array.isArray(response.response)).toBe(true);
 
             // For multi-changeset format, entries should have changesetIndex
-            const entriesWithIndex = response.response.filter((r) => r.changesetIndex !== undefined);
-            // At minimum, verify changesetIndex field exists on parsed items
             if (response.response.length > 0) {
                 expect('changesetIndex' in response.response[0]).toBe(true);
             }

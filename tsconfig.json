@@ -7,7 +7,7 @@
     "module": "commonjs",
     "target": "es2020",
     //
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "removeComments": true,
     "preserveConstEnums": true,
     "declaration": true,

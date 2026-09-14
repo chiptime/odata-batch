@@ -3,7 +3,8 @@ import MockAdapter from 'axios-mock-adapter';
 import { ODataBatch } from '../src/ODataBatch';
 import { ODataBatchAxiosRepository } from '../src/ODataBatchAxiosRepository';
 import { ODataBatchRepository } from '../src/BatchRepository';
-import { BatchResponse, BatchResponseConstructor, createBatchResponse, Call } from '../src/response';
+import { BatchResponse, BatchResponseConstructor, createBatchResponse } from '../src/response';
+import { Call } from '../src/request';
 import { DummyBatchRepo } from './helpers';
 import '../src/index';
 
@@ -15,11 +16,15 @@ import '../src/index';
 
 const wire = (...lines: string[]): string => lines.join('\r\n');
 
+/** axios 1.x types request headers as optional; tests always set them. */
+const sentHeaders = (req: { headers?: unknown }): Record<string, string> =>
+    (req.headers ?? {}) as Record<string, string>;
+
 describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
     let mock: MockAdapter;
 
     beforeEach(() => {
-        mock = new MockAdapter(axios);
+        mock = new MockAdapter(axios as any); // adapter types lag axios 1.20 generics; runtime fully compatible
     });
 
     afterEach(() => {
@@ -103,9 +108,10 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
         expect(req.url).toBe('http://sap.example.com/batch');
         expect(req.data).toContain('--batch_' + ts + '\r\nContent-Type: multipart/mixed; boundary=changeset_');
         expect(req.data.endsWith('--batch_' + ts + '--')).toBe(true);
-        expect(req.headers['Content-Type']).toBe(`multipart/mixed; boundary=batch_${ts}`);
-        expect(req.headers.Accept).toBe('application/json');
-        expect(req.headers.Authorization).toBe(`Basic ${Buffer.from('user:pass').toString('base64')}`);
+        const sent = sentHeaders(req);
+        expect(sent['Content-Type']).toBe(`multipart/mixed; boundary=batch_${ts}`);
+        expect(sent.Accept).toBe('application/json');
+        expect(sent.Authorization).toBe(`Basic ${Buffer.from('user:pass').toString('base64')}`);
     });
 
     test('batch-level non-2xx rejects the promise (axios validateStatus)', async () => {
@@ -126,7 +132,7 @@ describe('ODataBatch send() configuration semantics', () => {
     let mock: MockAdapter;
 
     beforeEach(() => {
-        mock = new MockAdapter(axios);
+        mock = new MockAdapter(axios as any); // adapter types lag axios 1.20 generics; runtime fully compatible
     });
 
     afterEach(() => {
@@ -151,7 +157,7 @@ describe('ODataBatch send() configuration semantics', () => {
         await batch.send();
 
         // Assert
-        const headers = mock.history.post[0].headers;
+        const headers = sentHeaders(mock.history.post[0]);
         expect(headers.Accept).toBe('application/json');
         expect(headers['Content-Type']).toBe(`multipart/mixed; boundary=batch_${ts}`);
         expect(headers['X-Custom']).toBe('keep-me'); // unrelated headers survive

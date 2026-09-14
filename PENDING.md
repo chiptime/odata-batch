@@ -22,19 +22,19 @@ Registro de issues, deuda técnica y mejoras pendientes.
 
 | # | Issue | Detalle |
 |---|---|---|
-| 5 | `skipLibCheck: true` en Jest | Workaround para `@types/babel__traverse` (sintaxis TS 5.0). Se elimina al migrar TypeScript. |
+| 5 | ~~`skipLibCheck: true` en Jest~~ | **RESUELTO (2026-09)**: migrado a TS 5.9.3; `skipLibCheck: false` en tsconfig y sin override en jest. |
 | 6 | ~~`parseData` accedido vía `['parseData']`~~ | **DECIDIDO (2026-09)**: queda privado; los tests acceden por bracket. No forma parte de la API pública. |
 | 7 | ~~BatchResponse parser devuelve arrays vacíos~~ | **RESUELTO (2026-09)**: fixtures LF vs parser CRLF. Cubierto en `tests/response.wire.test.ts`. |
 | 10 | ~~Branch muerto `response.ts:95`~~ | **RESUELTO (2026-09)**: fallback inalcanzable eliminado; cobertura 100% branches. |
 | 11 | ~~Parser: HTTP/1.0 y boundaries con comillas~~ | **RESUELTO (2026-09)**: regex `HTTP/1\.[01]`, unquote RFC 2046, error descriptivo si falta `content-type`. |
-| 12 | ~~Mutación~~ | **RESUELTO (2026-09)**: stryker 10 operativo (`npm run mutation`). Score 95.42% (229 killed / 11 survived). Sobrevivientes: anclas del regex unquote y ternarios de response types — menores. |
+| 12 | ~~Mutación~~ | **RESUELTO (2026-09)**: stryker 10 + stack migrado. Score **99.32%**; 2 sobrevivientes restantes son mutantes equivalentes demostrables: `Buffer.from(x, '')` (Node trata encoding vacío como utf8 default) y flag `'m'` en regex sin anclas `^`/`$` (inerte). |
 
 ## 🔵 Pendientes de infraestructura
 
 | # | Issue | Detalle |
 |---|---|---|
 | 8 | CI (GitHub Actions) | Excluido por decisión del usuario (2026-09). Workflow mínimo cuando se decida: `npm ci` + `npm test` + `npm run lint` (+ `npm run mutation`). |
-| 9 | Migrar TypeScript ≥5.0 | Declinado por ahora (2026-09). Desbloquearía jest moderno, eliminaría las 23 vulns de devDeps y el workaround #5. |
+| 9 | ~~Migrar TypeScript ≥5.0~~ | **RESUELTO (2026-09)**: TS 5.9.3 + jest 30 + ts-jest 29 + eslint 10 (flat config) + prettier 3 + @types/node 26 + nodemon 3. Diagnósticos de tipo en tests ACTIVADOS (destapó un import roto). `npm audit`: **0 vulnerabilidades** (antes 23). TS 7 (port nativo) queda como follow-up cuando ts-jest/typescript-eslint lo declaren soportado. |
 
 ## 🟢 Hardening del wire format — RESUELTO (2026-09)
 

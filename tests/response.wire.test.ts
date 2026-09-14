@@ -396,6 +396,146 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
         });
     });
 
+    describe('parser robustness (mutation-hardening)', () => {
+        test('body mentioning the batch boundary substring does not split the part', () => {
+            // Arrange - the split must anchor on '--<boundary>', never on the
+            // bare boundary token, or payloads echoing it would fragment
+            const body = wire(
+                '--batch_884',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                '{"note":"mentions batch_884 inside"}',
+                '',
+                '--batch_884--'
+            );
+
+            // Act
+            const response = parse(body);
+
+            // Assert
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toEqual({ note: 'mentions batch_884 inside' });
+        });
+
+        test('changeset boundary match is case-insensitive (declared vs used case mismatch)', () => {
+            // Arrange - declared boundary differs in case from the delimiters;
+            // the changeset-body regex matches without case sensitivity
+            const body = wire(
+                '--batch_884',
+                'Content-Type: multipart/mixed; boundary=Changeset_42',
+                '',
+                '--changeset_42',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                '{"id":1}',
+                '',
+                '--changeset_42--',
+                '--batch_884--'
+            );
+
+            // Act
+            const response = parse(body);
+
+            // Assert
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toEqual({ id: 1 });
+        });
+
+        test('blank line after the opening changeset delimiter still parses', () => {
+            // Arrange - some servers emit an empty line between the changeset
+            // delimiter and the first part; the split must consume only the
+            // delimiter's CRLF so the part keeps exactly one leading blank
+            const body = wire(
+                '--batch_884',
+                'Content-Type: multipart/mixed; boundary=changeset_42',
+                '',
+                '--changeset_42',
+                '',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                '{"id":1}',
+                '',
+                '--changeset_42--',
+                '--batch_884--'
+            );
+
+            // Act
+            const response = parse(body);
+
+            // Assert
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '200', status: 'OK', success: true });
+            expect(response.response[0].data).toEqual({ id: 1 });
+        });
+
+        test('quote characters inside an unquoted boundary are preserved verbatim', () => {
+            // Arrange - a boundary that CONTAINS quotes but does not start
+            // with one must not be unquoted; the body uses it verbatim
+            const body = wire(
+                '--batch"_884"',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                '{"ok":true}',
+                '',
+                '--batch"_884"--'
+            );
+
+            // Act
+            const response = new BatchResponse(
+                { data: body, headers: { 'content-type': 'multipart/mixed; boundary=batch"_884"' } },
+                'application/json'
+            );
+
+            // Assert
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toEqual({ ok: true });
+        });
+
+        test('quoted boundary with trailing junk is used verbatim (not unquoted)', () => {
+            // Arrange - unquoting requires the quotes to wrap the WHOLE value:
+            // '"batch_884"junk' starts with a quote but does not end with one,
+            // so it is kept as-is and the body must use it verbatim
+            const body = wire(
+                '--"batch_884"junk',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                '{"ok":true}',
+                '',
+                '--"batch_884"junk--'
+            );
+
+            // Act
+            const response = new BatchResponse(
+                { data: body, headers: { 'content-type': 'multipart/mixed; boundary="batch_884"junk' } },
+                'application/json'
+            );
+
+            // Assert - the malformed boundary is preserved and still parses
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toEqual({ ok: true });
+        });
+    });
+
     describe('malformed multipart boundaries', () => {
         test('missing content-type header throws a descriptive error', () => {
             // Act & Assert - was a raw TypeError before the fix

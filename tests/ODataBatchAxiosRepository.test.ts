@@ -7,7 +7,7 @@ describe('ODataBatchAxiosRepository', () => {
     let mock: MockAdapter;
 
     beforeEach(() => {
-        mock = new MockAdapter(axios);
+        mock = new MockAdapter(axios as any); // adapter types lag axios 1.20 generics; runtime fully compatible
     });
 
     afterEach(() => {
@@ -88,12 +88,13 @@ Accept: application/json
             // Act
             await repo.send(url, batchRequest, config, 'application/json', BatchResponse);
 
-            // Assert
+            // Assert - axios 1.x types headers as optional; the mock always sets them
             const request = mock.history.post[0];
+            const sent = (request.headers ?? {}) as Record<string, string>;
             expect(request.url).toBe(url);
             expect(request.data).toBe(batchRequest);
-            expect(request.headers.Authorization).toBe('Bearer token');
-            expect(request.headers.Accept).toBe('application/json');
+            expect(sent.Authorization).toBe('Bearer token');
+            expect(sent.Accept).toBe('application/json');
         });
 
         test('error passthrough for network errors', async () => {

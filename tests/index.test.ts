@@ -65,6 +65,63 @@ describe('public API surface (src/index)', () => {
 });
 
 describe('ODataBatch response-type mapping', () => {
+    test('defaults map BOTH response types to application/json and reach the wire', async () => {
+        // Arrange - pins the default 'json' parameter value and the ternary
+        // true-branch end to end
+        const repo = new DummyBatchRepo();
+        const batch = new ODataBatch(
+            {
+                url: 'http://example.com/batch',
+                auth: 'user:pass',
+                calls: [{ method: 'GET', url: '/items', data: null }],
+            },
+            repo
+        );
+
+        // Act
+        await batch.send();
+
+        // Assert - type mapping
+        expect(batch['requestResponseType']).toEqual({
+            contentType: 'application/json',
+            accept: 'application/json',
+        });
+        // Assert - per-call default headers on the wire
+        expect(repo.lastRequest).toContain('\r\nContent-Type: application/json\r\nAccept: application/json\r\n');
+        expect(repo.lastConfig.headers.Accept).toBe('application/json');
+    });
+
+    test("explicit 'json' values map exactly like the defaults", () => {
+        // Arrange
+        const batch = new ODataBatch(
+            {
+                url: 'http://example.com/batch',
+                auth: 'user:pass',
+                calls: [{ method: 'GET', url: '/items', data: null }],
+                batchResponseType: 'json',
+                individualResponseType: 'json',
+            },
+            new DummyBatchRepo()
+        );
+
+        // Act & Assert
+        expect(batch['requestResponseType']).toEqual({
+            contentType: 'application/json',
+            accept: 'application/json',
+        });
+    });
+
+    test('legacy call objects exposing a length property are not mistaken for changeset sub-arrays', () => {
+        // Arrange - Array.isArray discriminates, not duck-typing on .length
+        const batch = new ODataBatch({
+            url: 'http://example.com/batch',
+            auth: 'user:pass',
+            calls: [{ method: 'GET', url: '/items', data: null, length: 0 } as any],
+        });
+
+        // Act & Assert
+        expect(batch).toBeInstanceOf(ODataBatch);
+    });
     test("batchResponseType 'xml' maps contentType to application/xml", () => {
         // Arrange
         const batch = new ODataBatch(

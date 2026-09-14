@@ -212,7 +212,7 @@ describe('BatchResponse protocol conformance edges', () => {
                     const result = attempt();
                     expect(Array.isArray(result)).toBe(true);
                 } catch (e) {
-                    expect([TypeError, SyntaxError]).toContain(e.constructor);
+                    expect(e instanceof TypeError || e instanceof SyntaxError).toBe(true);
                 }
             }
         });

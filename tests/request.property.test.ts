@@ -338,6 +338,37 @@ describe('requestsToBatch() security / robustness characterizations', () => {
         expect(out).toContain('<pad>--changeset_42--</pad>');
     });
 
+    test('collision check serializes with the SAME form as the wire: xml objects do not reroll', () => {
+        // Arrange - an OBJECT payload on the xml path reaches the wire as
+        // '[object Object]', which cannot contain the delimiter: no reroll
+        makeRandomMock(42);
+        const calls: Call[] = [
+            { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42--' } },
+        ];
+
+        // Act
+        const out = requestsToBatch(calls, '884', { contentType: 'application/xml', accept: 'application/xml' });
+
+        // Assert - first boundary kept; the object stringified on the wire
+        expect(out).toContain('boundary=changeset_42');
+        expect(out).toContain('[object Object]');
+    });
+
+    test('persistent collision throws after EXACTLY the documented attempt budget', () => {
+        // Arrange - constant colliding roll; count Math.random calls:
+        // 1 initial + 9 rerolls = 10 before the guard fires
+        makeRandomMock(42);
+        const calls: Call[] = [
+            { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42--' } },
+        ];
+
+        // Act & Assert
+        expect(() => requestsToBatch(calls, '884', JSON_OPTS)).toThrow(
+            'Unable to generate a changeset boundary that does not collide with the payload'
+        );
+        expect((Math.random as jest.Mock).mock.calls.length).toBe(10);
+    });
+
     test('unicode survives JSON.stringify unescaped in both paths', () => {
         // Arrange
         makeRandomMock(42);

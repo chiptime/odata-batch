@@ -123,10 +123,12 @@ export class BatchResponse implements BatchResponseInterface {
                     [];
 
                 // Return each changeset part with its changesetIndex
-                return changeSetParts.filter((p: any) => p).map((part: any) => ({
-                    part,
-                    changesetIndex,
-                }));
+                return changeSetParts
+                    .filter((p: any) => p)
+                    .map((part: any) => ({
+                        part,
+                        changesetIndex,
+                    }));
             });
 
         return parseResponses.map(({ part, changesetIndex }) => ({

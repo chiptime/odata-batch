@@ -54,9 +54,7 @@ describe('ODataBatch', () => {
                         { method: 'POST', url: '/api/a', data: { id: 1 } },
                         { method: 'POST', url: '/api/a2', data: { id: 2 } },
                     ],
-                    [
-                        { method: 'GET', url: '/api/b', data: null },
-                    ],
+                    [{ method: 'GET', url: '/api/b', data: null }],
                 ],
             };
 

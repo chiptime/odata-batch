@@ -180,9 +180,7 @@ describe('requestsToBatch()', () => {
                     { method: 'POST', url: '/api/a', headers: {}, data: { id: 1 } },
                     { method: 'POST', url: '/api/a2', headers: {}, data: { id: 2 } },
                 ],
-                [
-                    { method: 'GET', url: '/api/b', headers: {}, data: null },
-                ],
+                [{ method: 'GET', url: '/api/b', headers: {}, data: null }],
                 [
                     { method: 'POST', url: '/api/c', headers: {}, data: { id: 3 } },
                     { method: 'GET', url: '/api/c2', headers: {}, data: null },
@@ -258,12 +256,8 @@ describe('requestsToBatch()', () => {
             // Arrange
             const restoreRandom = makeRandomMock(42);
             const calls = [
-                [
-                    { method: 'POST', url: '/api/a', headers: {}, data: { id: 1 } },
-                ],
-                [
-                    { method: 'GET', url: '/api/b', headers: {}, data: null },
-                ],
+                [{ method: 'POST', url: '/api/a', headers: {}, data: { id: 1 } }],
+                [{ method: 'GET', url: '/api/b', headers: {}, data: null }],
             ];
             const boundary = '1234567890';
             const options = {

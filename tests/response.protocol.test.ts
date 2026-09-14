@@ -31,19 +31,16 @@ const parse = (data: string, contentType = 'multipart/mixed; boundary=batch_884'
 
 describe('BatchResponse protocol conformance edges', () => {
     describe('status-line recognition', () => {
-        test('HTTP/1.0 status line is NOT recognized: code stays empty, success stays true', () => {
-            // Arrange - the parser only knows 'HTTP/1.1 ### ...'; an HTTP/1.0
-            // line falls through to the no-status behavior
+        test('HTTP/1.0 status lines are recognized since the 1.[01] regex fix', () => {
+            // Arrange - the parser now accepts both HTTP/1.0 and HTTP/1.1
             const body = wire(...part('HTTP/1.0 200 OK', ['Content-Type: application/json'], '{"id":1}'));
 
             // Act
             const r = parse(body).response;
 
-            // Assert - characterization: 1.0 responses read as "unknown" and
-            // therefore count as success
-            expect(r[0].code).toBe('');
-            expect(r[0].status).toBe('');
-            expect(r[0].success).toBe(true);
+            // Assert
+            expect(r[0]).toMatchObject({ code: '200', status: 'OK', success: true });
+            expect(r[0].data).toEqual({ id: 1 });
         });
 
         test.each([
@@ -89,16 +86,17 @@ describe('BatchResponse protocol conformance edges', () => {
             expect(r[0].data).toEqual({ id: 1 });
         });
 
-        test('QUOTED boundary never matches the body delimiters: empty result', () => {
-            // Arrange - RFC 2046 allows quoted boundary parameters; the parser
-            // keeps the quotes in the capture, so nothing is recognized
+        test('QUOTED boundary (RFC 2046) is unwrapped and parses correctly', () => {
+            // Arrange - RFC 2046 allows quoted boundary parameters; the quotes
+            // are stripped from the captured boundary before matching the body
             const body = wire(...part('HTTP/1.1 200 OK', [], '{"id":1}'));
 
             // Act
             const r = parse(body, 'multipart/mixed; boundary="batch_884"').response;
 
-            // Assert - documented as-is
-            expect(r).toEqual([]);
+            // Assert
+            expect(r).toHaveLength(1);
+            expect(r[0].data).toEqual({ id: 1 });
         });
     });
 

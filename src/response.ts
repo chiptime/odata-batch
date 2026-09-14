@@ -52,7 +52,7 @@ export class BatchResponse implements BatchResponseInterface {
 
         const httpResponseWithHeaders = responseParts[1].split('\r\n');
 
-        const regCodeAndStatus = RegExp('HTTP/1.1 ([0-9]{3}) (.+)');
+        const regCodeAndStatus = RegExp('HTTP/1\\.[01] ([0-9]{3}) (.+)');
 
         const headers = httpResponseWithHeaders
             .filter((header: string) => !regCodeAndStatus.test(header))
@@ -92,7 +92,9 @@ export class BatchResponse implements BatchResponseInterface {
             return JSON.parse(sData);
         }
 
-        const parts = sData.match(/.*/) || [''];
+        // /.*/ always matches a string (returning the first line, since '.'
+        // excludes '\n'), so no null fallback is needed here
+        const parts = sData.match(/.*/)!;
 
         return parts[0];
     }
@@ -137,13 +139,18 @@ export class BatchResponse implements BatchResponseInterface {
         }));
     }
 
-    getBoundary(headers: { [x: string]: any }): any {
+    getBoundary(headers: Record<string, string>): string {
         const contentType = headers['content-type'];
+        if (!contentType) {
+            throw new Error('Missing content-type header, cannot determine batch boundary');
+        }
         const boundaryMatch = contentType.match(/boundary=([^;]+)/);
 
         this.ensureHasBoundary(boundaryMatch);
 
-        return boundaryMatch[1];
+        // RFC 2046 allows quoted boundary parameters; the quotes are not
+        // part of the delimiter used in the body
+        return boundaryMatch![1].replace(/^"(.*)"$/, '$1');
     }
 
     ensureHasBoundary(boundaryMatch: RegExpExecArray): void {

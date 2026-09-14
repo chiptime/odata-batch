@@ -397,6 +397,13 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
     });
 
     describe('malformed multipart boundaries', () => {
+        test('missing content-type header throws a descriptive error', () => {
+            // Act & Assert - was a raw TypeError before the fix
+            expect(() => new BatchResponse({ data: 'x', headers: {} }, 'application/json')).toThrow(
+                'Missing content-type header, cannot determine batch boundary'
+            );
+        });
+
         test('missing boundary in content-type header throws', () => {
             // Act & Assert
             expect(

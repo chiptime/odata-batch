@@ -11,7 +11,7 @@ module.exports = {
     'ts-jest': {
       tsconfig: {
         skipLibCheck: true,
-        sourceMap: false,
+        sourceMap: true,
       },
       diagnostics: false,
     },

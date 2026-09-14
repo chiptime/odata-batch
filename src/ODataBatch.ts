@@ -55,7 +55,7 @@ export class ODataBatch {
             headers: {
                 ...this.headers,
 
-                Authorization: this.headers?.Authorization || `Basic ${this.auth}`,
+                Authorization: this.headers?.Authorization || `Basic ${this.encodeBasicAuth(this.auth)}`,
                 Accept: this.requestResponseType.accept,
                 'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary,
             },
@@ -68,6 +68,18 @@ export class ODataBatch {
             this.requestResponseType.accept,
             BatchResponse
         );
+    }
+
+    // RFC 7617: Basic credentials are base64(user-id:password). The standard
+    // base64 alphabet never contains ':', so a colon unambiguously marks RAW
+    // credentials (encode them); colon-less values are either pre-encoded
+    // credentials or opaque tokens and pass through untouched
+    private encodeBasicAuth(auth: string): string {
+        if (!auth.includes(':')) {
+            return auth;
+        }
+
+        return Buffer.from(auth, 'utf8').toString('base64');
     }
 
     private ensureHasCalls(data: Call[] | Call[][] | undefined): asserts data is Call[] | Call[][] {

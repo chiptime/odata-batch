@@ -105,7 +105,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
         expect(req.data.endsWith('--batch_' + ts + '--')).toBe(true);
         expect(req.headers['Content-Type']).toBe(`multipart/mixed; boundary=batch_${ts}`);
         expect(req.headers.Accept).toBe('application/json');
-        expect(req.headers.Authorization).toBe('Basic user:pass'); // raw, NOT base64-encoded
+        expect(req.headers.Authorization).toBe(`Basic ${Buffer.from('user:pass').toString('base64')}`);
     });
 
     test('batch-level non-2xx rejects the promise (axios validateStatus)', async () => {
@@ -172,6 +172,28 @@ describe('ODataBatch send() configuration semantics', () => {
 
         // Assert - documented as-is
         expect(repo.lastConfig.headers.Authorization).toBe('Basic ');
+    });
+
+    test.each([
+        ['raw user:pass is base64-encoded per RFC 7617', 'user:pass', Buffer.from('user:pass').toString('base64')],
+        ['pre-encoded credentials pass through untouched (no double-encode)', 'dXNlcjpwYXNz', 'dXNlcjpwYXNz'],
+        ['colon-less token passes through untouched', 'hunter2', 'hunter2'],
+        ['raw credentials with unicode encode from utf8', 'ñoño:pw', Buffer.from('ñoño:pw', 'utf8').toString('base64')],
+        ['empty-ish "user:" encodes to its base64 form', 'user:', Buffer.from('user:').toString('base64')],
+    ])('Basic auth heuristic: %s', async (_label, auth, expected) => {
+        // Arrange
+        const repo = new DummyBatchRepo();
+        const batch = new ODataBatch(
+            { url: 'http://x/batch', auth, calls: [{ method: 'GET', url: '/Items', data: null }] },
+            repo
+        );
+
+        // Act
+        await batch.send();
+
+        // Assert - the discriminator is ':': present => raw credentials to
+        // encode; absent => pre-encoded or opaque token, byte-identical
+        expect(repo.lastConfig.headers.Authorization).toBe(`Basic ${expected}`);
     });
 
     test('custom repository replaces the axios transport entirely', async () => {

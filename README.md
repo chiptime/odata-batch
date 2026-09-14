@@ -60,7 +60,7 @@ You only need to generate an array with the requests you want to send, the reque
     const config = {
         url: `https://*****/$batch`,
         headers,
-        auth: '******', // base64 string for basic auth
+        auth: '******', // Basic auth: raw 'user:pass' is base64-encoded automatically; pre-encoded (colon-less) values pass through
         calls,
     };
 

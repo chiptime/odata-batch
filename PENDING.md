@@ -24,7 +24,7 @@ Registro de issues, deuda técnica y mejoras pendientes tras `add-test-infrastru
 |---|---|---|
 | 5 | `skipLibCheck: true` en Jest | Workaround para `@types/babel__traverse` que usa sintaxis TS 5.0. Se elimina al migrar TypeScript. |
 | 6 | `parseData` accedido vía `['parseData']` en tests | El método es privado. Si se expone como parte de la API pública, testear directamente. |
-| 7 | BatchResponse parser devuelve arrays vacíos | Documentado en tests. El formato multipart de OData batch no coincide exactamente con el parser actual. Requiere análisis del protocolo real. |
+| 7 | ~~BatchResponse parser devuelve arrays vacíos~~ | **RESUELTO (2026-09)**: los fixtures de test usaban LF; el parser exige CRLF (`\r\n\r\n`, filtro `^content-type` post-split). Cubierto en `tests/response.wire.test.ts`. Queda como deuda el branch muerto `|| ['']` en `response.ts:95`. |
 
 ## 🔵 Pendientes de infraestructura
 

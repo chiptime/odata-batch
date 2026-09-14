@@ -46,6 +46,19 @@ export function makeRandomMock(value: number): () => void {
 }
 
 /**
+ * Mock helper for a deterministic SEQUENCE of Math.random values (each as a
+ * percentage, matching makeRandomMock). The last value repeats if exhausted.
+ */
+export function makeRandomSequenceMock(values: number[]): () => void {
+    const original = Math.random;
+    let i = 0;
+    Math.random = jest.fn(() => values[Math.min(i++, values.length - 1)] / 100);
+    return () => {
+        Math.random = original;
+    };
+}
+
+/**
  * Mock helper for deterministic Date.now in tests.
  * Returns a function that restores the original when called.
  */

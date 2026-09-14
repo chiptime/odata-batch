@@ -13,7 +13,27 @@ export const requestsToBatch = function (
     boundary: string,
     { contentType, accept }: { contentType?: string; accept?: string }
 ): string {
-    const changeSetNum = Math.random() * 100;
+    let changeSetNum = Math.random() * 100;
+
+    const LINE_BREAK = /[\r\n]/;
+
+    // Header-injection guard: a line break inside the request line or a
+    // header value would smuggle extra lines into the wire format
+    const ensureCallIsSafe = (call: Call): void => {
+        if (LINE_BREAK.test(call.url)) {
+            throw new Error(`Call url must not contain line breaks: ${JSON.stringify(call.url)}`);
+        }
+        if (LINE_BREAK.test(call.method)) {
+            throw new Error(`Call method must not contain line breaks: ${JSON.stringify(call.method)}`);
+        }
+        if (call.headers) {
+            Object.entries(call.headers).forEach(([key, value]) => {
+                if (LINE_BREAK.test(key) || LINE_BREAK.test(String(value))) {
+                    throw new Error(`Call header '${key}' must not contain line breaks`);
+                }
+            });
+        }
+    };
 
     const parseHeaders = (headers?: Record<string, string | number>): string[] => {
         if (!headers) {
@@ -39,6 +59,27 @@ export const requestsToBatch = function (
 
     // Auto-detect multi-changeset format
     const isMulti = Array.isArray(data[0]);
+
+    const allCalls: Call[] = isMulti ? (data as Call[][]).flat() : (data as Call[]);
+    allCalls.forEach(ensureCallIsSafe);
+
+    // Boundary-collision guard: if a serialized payload already contains the
+    // changeset delimiter, the server would cut the changeset early - reroll
+    // the boundary until the wire is unambiguous
+    const serializeBody = (call: Call): string =>
+        contentType === 'application/xml' ? String(call.data) : JSON.stringify(call.data);
+    const serializedBodies = allCalls.map(serializeBody);
+
+    for (
+        let attempts = 0;
+        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--changeset_${changeSetNum}`));
+        attempts++
+    ) {
+        if (attempts >= 9) {
+            throw new Error('Unable to generate a changeset boundary that does not collide with the payload');
+        }
+        changeSetNum = Math.random() * 100;
+    }
 
     if (!isMulti) {
         // Legacy path - bit-identical to v1.2.0

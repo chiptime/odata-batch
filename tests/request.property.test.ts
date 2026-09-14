@@ -1,6 +1,6 @@
 import { requestsToBatch, Call } from '../src/request';
 import { BatchResponse } from '../src/response';
-import { makeRandomMock } from './helpers';
+import { makeRandomMock, makeRandomSequenceMock } from './helpers';
 
 /**
  * Property-based and security/characterization tests for requestsToBatch().
@@ -202,34 +202,140 @@ describe('requestsToBatch() security / robustness characterizations', () => {
         jest.restoreAllMocks();
     });
 
-    test('CRLF injection: a url containing \\r\\n flows into the wire unsanitized', () => {
+    test('CRLF injection: a url containing \\r\\n is REJECTED before reaching the wire', () => {
         // Arrange - a hostile/buggy caller embeds a line break in the url.
-        // The library performs NO sanitization: the break lands inside the
-        // request line and would corrupt the part on a real server.
+        // Since the hardening, requestsToBatch rejects it instead of letting
+        // it corrupt the MIME part on the server.
         makeRandomMock(42);
         const calls: Call[] = [{ method: 'POST', url: '/api/a\r\nX-Evil: injected', headers: undefined, data: {} }];
 
-        // Act
-        const out = requestsToBatch(calls, '884', JSON_OPTS);
-
-        // Assert - documented as-is: header injection is possible today
-        expect(out).toContain('X-Evil: injected');
+        // Act & Assert
+        expect(() => requestsToBatch(calls, '884', JSON_OPTS)).toThrow('Call url must not contain line breaks');
     });
 
-    test('boundary collision: payload containing the changeset terminator is not escaped', () => {
-        // Arrange - with changeSetNum 42 the first multi boundary is
-        // changeset_42_0; a payload echoing '--changeset_42_0--' would
-        // terminate the changeset early on the server side.
+    test('line breaks in methods and header keys/values are rejected', () => {
+        // Arrange
+        makeRandomMock(42);
+
+        // Act & Assert - method
+        expect(() =>
+            requestsToBatch(
+                [{ method: 'POST\r\nX-Evil: 1', url: '/a', headers: undefined, data: null }],
+                '884',
+                JSON_OPTS
+            )
+        ).toThrow('Call method must not contain line breaks');
+
+        // header value (string)
+        expect(() =>
+            requestsToBatch(
+                [{ method: 'POST', url: '/a', headers: { 'x-a': 'v\r\nX-Evil: 2' }, data: null }],
+                '884',
+                JSON_OPTS
+            )
+        ).toThrow("Call header 'x-a' must not contain line breaks");
+
+        // header key
+        expect(() =>
+            requestsToBatch([{ method: 'POST', url: '/a', headers: { 'x-a\r\n': 'v' }, data: null }], '884', JSON_OPTS)
+        ).toThrow('must not contain line breaks');
+
+        // header value coerced from number is still checked
+        expect(() =>
+            requestsToBatch([{ method: 'POST', url: '/a', headers: { 'x-n': 3 }, data: null }], '884', JSON_OPTS)
+        ).not.toThrow();
+    });
+
+    test('line-break validation applies to the multi-changeset path too', () => {
+        // Arrange
         makeRandomMock(42);
         const calls: Call[][] = [
-            [{ method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42_0--' } }],
+            [
+                { method: 'GET', url: '/ok', headers: undefined, data: null },
+                { method: 'GET', url: '/bad\nurl', headers: undefined, data: null },
+            ],
+        ];
+
+        // Act & Assert
+        expect(() => requestsToBatch(calls, '884', JSON_OPTS)).toThrow('Call url must not contain line breaks');
+    });
+
+    test('boundary collision: payload containing the delimiter triggers boundary REGENERATION (legacy)', () => {
+        // Arrange - first roll collides (42), second roll is clean (77)
+        makeRandomSequenceMock([42, 77]);
+        const calls: Call[] = [
+            { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42--' } },
         ];
 
         // Act
         const out = requestsToBatch(calls, '884', JSON_OPTS);
 
-        // Assert - documented as-is: no escaping of boundary-like payloads
+        // Assert - regenerated boundary, payload intact
+        expect(out).toContain('boundary=changeset_77');
+        expect(out).not.toContain('boundary=changeset_42');
+        expect(out).toContain('"pad":"--changeset_42--"');
+    });
+
+    test('boundary collision: regeneration applies to the multi-changeset path', () => {
+        // Arrange
+        makeRandomSequenceMock([42, 77]);
+        const calls: Call[][] = [
+            [
+                { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42_0--' } },
+                { method: 'GET', url: '/api/b', headers: undefined, data: null },
+            ],
+        ];
+
+        // Act
+        const out = requestsToBatch(calls, '884', JSON_OPTS);
+
+        // Assert - both changeset boundaries derive from the regenerated roll
+        expect(out).toContain('boundary=changeset_77_0');
+        expect(out).not.toContain('boundary=changeset_42');
         expect(out).toContain('"pad":"--changeset_42_0--"');
+    });
+
+    test('boundary collision: persistent collision throws after exhausting attempts', () => {
+        // Arrange - Math.random pinned to the colliding value forever
+        makeRandomMock(42);
+        const calls: Call[] = [
+            { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42--' } },
+        ];
+
+        // Act & Assert
+        expect(() => requestsToBatch(calls, '884', JSON_OPTS)).toThrow(
+            'Unable to generate a changeset boundary that does not collide with the payload'
+        );
+    });
+
+    test('collision check is conservative on prefixes: boundary 42 rerolls against a --changeset_425 payload', () => {
+        // Arrange - '--changeset_42' is a prefix of '--changeset_425', so the
+        // substring check fires conservatively and regenerates (documented)
+        makeRandomSequenceMock([42, 77]);
+        const calls: Call[] = [
+            { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_425--' } },
+        ];
+
+        // Act
+        const out = requestsToBatch(calls, '884', JSON_OPTS);
+
+        // Assert
+        expect(out).toContain('boundary=changeset_77');
+    });
+
+    test('xml payloads participate in the collision check', () => {
+        // Arrange
+        makeRandomSequenceMock([42, 77]);
+        const calls: Call[] = [
+            { method: 'POST', url: '/api/a', headers: undefined, data: '<pad>--changeset_42--</pad>' },
+        ];
+
+        // Act
+        const out = requestsToBatch(calls, '884', { contentType: 'application/xml', accept: 'application/xml' });
+
+        // Assert
+        expect(out).toContain('boundary=changeset_77');
+        expect(out).toContain('<pad>--changeset_42--</pad>');
     });
 
     test('unicode survives JSON.stringify unescaped in both paths', () => {

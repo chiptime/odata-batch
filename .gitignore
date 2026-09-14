@@ -6,3 +6,5 @@ coverage/
 
 .idea
 .atl/
+.stryker-tmp/
+stryker.log

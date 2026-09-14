@@ -12,7 +12,8 @@
     "prepublish": "tsc --project tsconfig.json",
     "build": "tsc --project tsconfig.json",
     "_watch": "NODE_DEBUG_PORT=9230 PORT=3000 nodemon --config nodemon.json",
-    "watch": "nodemon --config nodemon.json"
+    "watch": "nodemon --config nodemon.json",
+    "mutation": "stryker run"
   },
   "repository": {
     "type": "git",
@@ -39,6 +40,8 @@
   },
   "homepage": "https://github.com/chiptime/odata-batch#readme",
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/jest-runner": "^10.0.0",
     "@types/jest": "^27.5.2",
     "@types/node": "^15.12.4",
     "@typescript-eslint/eslint-plugin": "^4.33.0",

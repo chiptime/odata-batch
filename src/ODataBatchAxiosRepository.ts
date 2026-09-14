@@ -14,9 +14,13 @@ export class ODataBatchAxiosRepository implements ODataBatchRepository {
 
         // axios 1.x types headers as AxiosHeaders; the runtime shape is the
         // plain string-indexable map the parser expects
-        return createBatchResponse(BatchParser, request as unknown as {
-            data: string;
-            headers: Record<string, string>;
-        }, accept).response;
+        return createBatchResponse(
+            BatchParser,
+            request as unknown as {
+                data: string;
+                headers: Record<string, string>;
+            },
+            accept
+        ).response;
     }
 }

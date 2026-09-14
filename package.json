@@ -1,7 +1,7 @@
 {
   "name": "odata-batch",
-  "version": "1.3.0",
-  "description": "a simple lib for send and recieve calls odata batch ",
+  "version": "2.0.0",
+  "description": "Build and parse OData V2 $batch multipart requests: multiple changesets, per-response error detection and typed results",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -9,11 +9,11 @@
     "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "prepublish": "tsc --project tsconfig.json",
     "build": "tsc --project tsconfig.json",
     "_watch": "NODE_DEBUG_PORT=9230 PORT=3000 nodemon --config nodemon.json",
     "watch": "nodemon --config nodemon.json",
-    "mutation": "stryker run"
+    "mutation": "stryker run",
+    "prepare": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -21,15 +21,11 @@
   },
   "keywords": [
     "odata",
-    "oData",
-    "v2",
-    "v3",
-    "v4",
+    "odata-v2",
     "odata2",
-    "odata3",
-    "odata4",
     "batch",
-    "operation",
+    "$batch",
+    "multipart",
     "batchcall",
     "sap"
   ],
@@ -57,7 +53,8 @@
   "dependencies": {
     "axios": "^1.20.0"
   },
-  "overrides": {
-    "@types/babel__traverse": "7.17.1"
-  }
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ]
 }

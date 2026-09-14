@@ -1,4 +1,4 @@
-import { BatchResponseConstructor } from "./response";
+import { BatchResponseConstructor } from './response';
 
 export interface ODataBatchRepository {
     send(
@@ -7,6 +7,5 @@ export interface ODataBatchRepository {
         config: any,
         accept: string,
         BatchParser: BatchResponseConstructor
-    ): Promise<any>
+    ): Promise<any>;
 }
-

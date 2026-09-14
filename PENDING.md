@@ -36,15 +36,15 @@ Registro de issues, deuda técnica y mejoras pendientes.
 | 8 | CI (GitHub Actions) | Excluido por decisión del usuario (2026-09). Workflow mínimo cuando se decida: `npm ci` + `npm test` + `npm run lint` (+ `npm run mutation`). |
 | 9 | Migrar TypeScript ≥5.0 | Declinado por ahora (2026-09). Desbloquearía jest moderno, eliminaría las 23 vulns de devDeps y el workaround #5. |
 
-## 🟠 Hardening del wire format — ESPERA DECISIÓN
+## 🟢 Hardening del wire format — RESUELTO (2026-09)
 
-Propuestos y explicados (2026-09), sin implementar. Todos con tests de caracterización listos como red de seguridad:
+Los tres propuestos, aprobados e implementados con su batería de tests:
 
-| # | Propuesta | Riesgo del cambio |
+| # | Propuesta | Implementación |
 |---|---|---|
-| H1 | Sanitizar/rechazar CRLF en url y headers de `Call` | Podría rechazar inputs que hoy "funcionan" (rotos en el servidor, pero pasan). Semver: minor al menos. |
-| H2 | Escapar payloads que contienen el boundary del changeset | Cambia bytes del wire → riesgo de compatibilidad con servidores estrictos. Necesita validación contra servidor real. |
-| H3 | Codificar base64 las credenciales en `Basic auth` | **Breaking**: servidores que hoy reciben las credenciales ya codificadas por el caller dejarían de funcionar. Requiere flag opt-in (`authEncoded: true`) o major. |
+| H1 | ~~Sanitizar/rechazar CRLF~~ | `requestsToBatch` rechaza (`throw`) `\r`/`\n` en url, method y keys/valores de headers, en ambas rutas (legacy y multi). Mensajes de error por campo. |
+| H2 | ~~Regenerar boundary en colisión~~ | Si algún payload serializado (JSON o XML) contiene `--changeset_{num}`, se re-sortea el boundary (máx. 10 intentos → throw). Check conservador por prefijo. Wire idéntico para payloads limpios. |
+| H3 | ~~Base64 en Basic auth~~ | Heurística del colon (RFC 7617): valor con `:` ⇒ credenciales crudas ⇒ se codifica base64 (utf8); sin `:` ⇒ pre-codificado o token ⇒ pasa byte-idéntico. README actualizado. |
 
 ---
 

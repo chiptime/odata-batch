@@ -4,6 +4,7 @@ import { ODataBatch } from '../src/ODataBatch';
 import { ODataBatchAxiosRepository } from '../src/ODataBatchAxiosRepository';
 import { ODataBatchRepository } from '../src/BatchRepository';
 import { BatchResponse, BatchResponseConstructor, createBatchResponse, Call } from '../src/response';
+import { DummyBatchRepo } from './helpers';
 import '../src/index';
 
 /**
@@ -157,22 +158,20 @@ describe('ODataBatch send() configuration semantics', () => {
     });
 
     test('empty auth composes as "Basic " (empty credentials, unencoded)', async () => {
-        // Arrange
-        const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
-            auth: '',
-            calls: [{ method: 'GET', url: '/Items', data: null }],
-        });
-        const ts = (batch as any)['boundary'] as string;
-        mock.onPost('http://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
-            'content-type': `multipart/mixed; boundary=batch_${ts}`,
-        });
+        // Arrange - DummyRepo instead of axios: axios 1.x trims trailing
+        // whitespace when serializing header values, so the transport would
+        // show 'Basic'; what matters here is what ODataBatch itself composes
+        const repo = new DummyBatchRepo();
+        const batch = new ODataBatch(
+            { url: 'http://x/batch', auth: '', calls: [{ method: 'GET', url: '/Items', data: null }] },
+            repo
+        );
 
         // Act
         await batch.send();
 
         // Assert - documented as-is
-        expect(mock.history.post[0].headers.Authorization).toBe('Basic ');
+        expect(repo.lastConfig.headers.Authorization).toBe('Basic ');
     });
 
     test('custom repository replaces the axios transport entirely', async () => {

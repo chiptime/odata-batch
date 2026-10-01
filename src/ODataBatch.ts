@@ -1,4 +1,4 @@
-import { requestsToBatch, Call } from './request';
+import { requestsToBatch, retrieveToBatch, Call, RetrieveCall } from './request';
 import { BatchResponse, BatchResponseParsed } from './response';
 import { ODataBatchRepository } from './BatchRepository';
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
@@ -21,6 +21,7 @@ export class ODataBatch {
             headers,
             auth,
             calls,
+            retrieve,
             batchResponseType = 'json',
             individualResponseType = 'json',
         }: {
@@ -28,12 +29,13 @@ export class ODataBatch {
             headers?: Record<string, string>;
             auth: string;
             calls?: Call[] | Call[][];
+            retrieve?: RetrieveCall[];
             batchResponseType?: string;
             individualResponseType?: string;
         },
         batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
-        this.ensureHasCalls(calls);
+        this.ensureSingleMode(calls, retrieve);
 
         this.boundary = new Date().getTime().toString();
 
@@ -47,7 +49,13 @@ export class ODataBatch {
             accept: individualResponseType === 'json' ? 'application/json' : 'application/xml',
         };
 
-        this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
+        if (retrieve) {
+            // Read-only batch: GETs become direct parts, no changeset wrapper
+            this.batchRequest = retrieveToBatch(retrieve, this.boundary, { accept: this.requestResponseType.accept });
+        } else {
+            this.ensureHasCalls(calls);
+            this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
+        }
     }
 
     public send(): Promise<BatchResponseParsed[]> {
@@ -80,6 +88,18 @@ export class ODataBatch {
         }
 
         return Buffer.from(auth, 'utf8').toString('base64');
+    }
+
+    // changeset mode (calls) and retrieve mode are mutually exclusive:
+    // passing both is ambiguous, passing neither is a no-op
+    private ensureSingleMode(calls: Call[] | Call[][] | undefined, retrieve: RetrieveCall[] | undefined): void {
+        if (calls && retrieve) {
+            throw new Error('Pass either calls or retrieve, not both');
+        }
+
+        if (retrieve && retrieve.length <= 0) {
+            throw new Error('No calls have been passed');
+        }
     }
 
     private ensureHasCalls(data: Call[] | Call[][] | undefined): asserts data is Call[] | Call[][] {

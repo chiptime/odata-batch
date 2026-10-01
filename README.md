@@ -99,13 +99,63 @@ failures back to the transaction that produced them.
 A flat `Call[]` still produces a single changeset, with the exact same wire
 format as previous versions.
 
+## Read-only batches (retrieve)
+
+OData V2 draws a hard line between the two batch flavors: retrieve
+operations (GETs) are sent as **direct batch parts**, while write operations
+live inside changesets. Passing `calls` always wraps every operation in a
+changeset — correct for writes, wrong for reads. For a read-only batch, pass
+`retrieve` instead:
+
+```ts
+import { ODataBatch, RetrieveCall } from 'odata-batch';
+
+const retrieve: RetrieveCall[] = [
+    { url: "https://my.server.sap/sap/opu/odata/sap/API/Candidates('200')" },
+    { url: 'https://my.server.sap/sap/opu/odata/sap/API/Candidates/$count' },
+];
+
+const batch = new ODataBatch({
+    url: 'https://my.server.sap/sap/opu/odata/sap/API/$batch',
+    auth: 'user:password',
+    retrieve,
+});
+
+const responses = await batch.send();
+responses.map((r) => [r.code, r.success]);
+// [['200', true], ['200', true]] - same order as `retrieve`
+```
+
+Rules:
+
+- **`calls` XOR `retrieve`.** Passing both throws
+  `Pass either calls or retrieve, not both`; passing neither (or an empty
+  `retrieve`) throws the usual `No calls have been passed`.
+- **GET-only.** A retrieve entry is just `url` and optional `headers`. There is
+  deliberately no way to express a method or a body: an entry carrying a
+  `method` or `data` property throws
+  `retrieve calls are GET-only: method and data are not allowed`.
+- **Wire format.** Each entry becomes a direct `application/http` part under
+  the batch boundary — no changeset delimiters anywhere. The per-part
+  `Accept` comes from `individualResponseType`; a custom `accept` header is
+  replaced by it, and a custom `content-type` header is dropped (a GET has no
+  body). Line breaks in urls and header keys/values are rejected, exactly as
+  for `calls`.
+
+Responses come back as `BatchResponseParsed[]`, one entry per retrieve call,
+in order; `changesetIndex` is simply the part index here. Authentication,
+`headers`, the custom-adapter mechanism and the batch-level
+`Content-Type: multipart/mixed; boundary=batch_<boundary>` are identical to
+changeset mode.
+
 ## Configuration
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `url` | `string` | — | The `$batch` endpoint. **Required.** |
 | `auth` | `string` | — | Basic-auth credential. See [Authentication](#authentication). **Required.** |
-| `calls` | `Call[] \| Call[][]` | — | Operations to send. Empty arrays are rejected. |
+| `calls` | `Call[] \| Call[][]` | — | Operations to send. Empty arrays are rejected. Mutually exclusive with `retrieve`. |
+| `retrieve` | `RetrieveCall[]` | — | Read-only mode: GETs sent as direct batch parts (no changeset). Mutually exclusive with `calls`. |
 | `headers` | `Record<string, string>` | — | Extra headers for the batch request itself. `Authorization` from here overrides `auth`; `Accept` and `Content-Type` are always derived from the response-type options. |
 | `batchResponseType` | `'json' \| 'xml'` | `'json'` | How `data` of each call is serialized into the batch body. `json` uses `JSON.stringify`; `xml` writes the payload verbatim. |
 | `individualResponseType` | `'json' \| 'xml'` | `'json'` | How each inner response body is parsed. `json` runs `JSON.parse`; `xml` returns the raw string. Also sent as the batch `Accept` header. |
@@ -119,6 +169,13 @@ Each `Call` accepts:
 | `url` | `string` | Request URL. Must not contain line breaks. |
 | `data` | `any` | Payload: serialized per `batchResponseType`. |
 | `headers` | `Record<string, string \| number>` | Optional. `Content-Type`/`Accept` here are overridden by the response-type options; every other header passes through verbatim. |
+
+Each `RetrieveCall` accepts:
+
+| Field | Type | Description |
+|---|---|---|
+| `url` | `string` | Request URL. Must not contain line breaks. |
+| `headers` | `Record<string, string \| number>` | Optional. A custom `accept` is replaced by `individualResponseType`; a custom `content-type` is dropped (a GET has no body). Every other header passes through verbatim. |
 
 ## Authentication
 
@@ -146,7 +203,9 @@ before passing them. To bypass the heuristic entirely, set
 | Situation | Behavior |
 |---|---|
 | `calls` missing, empty, or containing an empty changeset | `throw` at construction: `No calls have been passed` |
-| Line breaks (`\r`/`\n`) in a call url, method or header | `throw` before sending — blocks header injection into the MIME part |
+| `calls` and `retrieve` both passed | `throw` at construction: `Pass either calls or retrieve, not both` |
+| Retrieve entry carrying `method` or `data` | `throw` at construction: `retrieve calls are GET-only: method and data are not allowed` |
+| Line breaks (`\r`/`\n`) in a call or retrieve url, method or header | `throw` before sending — blocks header injection into the MIME part |
 | Payload contains the generated changeset boundary | Boundary is regenerated (up to 10 attempts), then `throw` |
 | Batch endpoint answers non-2xx | Promise **rejects** (transport error; nothing is parsed) |
 | Inner response is 4xx/5xx | Parsed normally with `success: false` — the promise still resolves |

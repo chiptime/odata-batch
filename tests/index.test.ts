@@ -1,4 +1,4 @@
-import { ODataBatch, createBatchResponse } from '../src/index';
+import { ODataBatch, createBatchResponse, RetrieveCall } from '../src/index';
 import { BatchResponse } from '../src/response';
 import { DummyBatchRepo } from './helpers';
 
@@ -60,6 +60,29 @@ describe('public API surface (src/index)', () => {
 
         // Assert
         expect(repo.lastRequest).toContain('boundary=changeset_');
+        expect(result).toEqual([{ code: '200', status: 'OK', headers: [], data: {}, success: true }]);
+    });
+
+    test('RetrieveCall is re-exported and drives retrieve mode end-to-end', async () => {
+        // Arrange - type import proves the re-export; no `calls` needed
+        const repo = new DummyBatchRepo();
+        const retrieve: RetrieveCall[] = [{ url: '/api/a' }, { url: '/api/b' }];
+        const batch = new ODataBatch(
+            {
+                url: 'http://example.com/batch',
+                auth: 'user:pass',
+                retrieve,
+            },
+            repo
+        );
+
+        // Act
+        const result = await batch.send();
+
+        // Assert - direct GET parts (no changeset), parsed results resolved
+        expect(repo.lastRequest).toContain('GET /api/a HTTP/1.1');
+        expect(repo.lastRequest).toContain('GET /api/b HTTP/1.1');
+        expect(repo.lastRequest).not.toContain('changeset');
         expect(result).toEqual([{ code: '200', status: 'OK', headers: [], data: {}, success: true }]);
     });
 });

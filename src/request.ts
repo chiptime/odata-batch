@@ -8,32 +8,64 @@ export interface Call {
     headers?: Record<string, string | number>;
 }
 
+export interface RetrieveCall {
+    url: string;
+    headers?: Record<string, string | number>;
+}
+
+const LINE_BREAK = /[\r\n]/;
+
+// Header-injection guard: a line break inside the request line or a
+// header value would smuggle extra lines into the wire format
+const ensureNoLineBreak = (label: string, value: string): void => {
+    if (LINE_BREAK.test(value)) {
+        throw new Error(`Call ${label} must not contain line breaks: ${JSON.stringify(value)}`);
+    }
+};
+
+const ensureHeadersAreSafe = (headers?: Record<string, string | number>): void => {
+    if (!headers) {
+        return;
+    }
+
+    Object.entries(headers).forEach(([key, value]) => {
+        if (LINE_BREAK.test(key) || LINE_BREAK.test(String(value))) {
+            throw new Error(`Call header '${key}' must not contain line breaks`);
+        }
+    });
+};
+
+const ensureCallIsSafe = (call: Call): void => {
+    ensureNoLineBreak('url', call.url);
+    ensureNoLineBreak('method', call.method);
+    ensureHeadersAreSafe(call.headers);
+};
+
+// GET-only guard: retrieve mode has no way to express a method or a body.
+// A `method`/`data` own property (e.g. a Call cast to RetrieveCall) means
+// the caller wanted more than a plain GET - reject it instead of silently
+// dropping the intent
+const ensureRetrieveIsGetOnly = (retrieve: RetrieveCall): void => {
+    if (
+        Object.prototype.hasOwnProperty.call(retrieve, 'method') ||
+        Object.prototype.hasOwnProperty.call(retrieve, 'data')
+    ) {
+        throw new Error('retrieve calls are GET-only: method and data are not allowed');
+    }
+};
+
+const ensureRetrieveCallIsSafe = (retrieve: RetrieveCall): void => {
+    ensureRetrieveIsGetOnly(retrieve);
+    ensureNoLineBreak('url', retrieve.url);
+    ensureHeadersAreSafe(retrieve.headers);
+};
+
 export const requestsToBatch = function (
     data: Call[] | Call[][],
     boundary: string,
     { contentType, accept }: { contentType?: string; accept?: string }
 ): string {
     let changeSetNum = Math.random() * 100;
-
-    const LINE_BREAK = /[\r\n]/;
-
-    // Header-injection guard: a line break inside the request line or a
-    // header value would smuggle extra lines into the wire format
-    const ensureCallIsSafe = (call: Call): void => {
-        if (LINE_BREAK.test(call.url)) {
-            throw new Error(`Call url must not contain line breaks: ${JSON.stringify(call.url)}`);
-        }
-        if (LINE_BREAK.test(call.method)) {
-            throw new Error(`Call method must not contain line breaks: ${JSON.stringify(call.method)}`);
-        }
-        if (call.headers) {
-            Object.entries(call.headers).forEach(([key, value]) => {
-                if (LINE_BREAK.test(key) || LINE_BREAK.test(String(value))) {
-                    throw new Error(`Call header '${key}' must not contain line breaks`);
-                }
-            });
-        }
-    };
 
     const parseHeaders = (headers?: Record<string, string | number>): string[] => {
         if (!headers) {
@@ -146,4 +178,49 @@ export const requestsToBatch = function (
     });
 
     return flatten(changesets).concat(`--batch_${boundary}--`).join('\r\n');
+};
+
+// OData V2 retrieve operations (GETs) must be direct batch parts, never
+// changeset members: each entry below becomes its own application/http
+// part under the batch boundary, with no changeset delimiters anywhere
+export const retrieveToBatch = function (
+    data: RetrieveCall[],
+    boundary: string,
+    { accept }: { accept?: string }
+): string {
+    data.forEach(ensureRetrieveCallIsSafe);
+
+    // A GET has no body: a custom content-type is dropped and a custom
+    // accept is replaced by the batch-level accept (the individual
+    // response media type), the same override parseHeaders applies to
+    // changeset parts
+    const parseHeaders = (headers?: Record<string, string | number>): string[] => {
+        if (!headers) {
+            return [`Accept: ${accept}`];
+        }
+
+        const custom = Object.entries(headers)
+            .filter(([header]) => header.toLowerCase() !== 'accept' && header.toLowerCase() !== 'content-type')
+            .map(([header, value]) => header + ': ' + value);
+
+        return [`Accept: ${accept}`, ...custom];
+    };
+
+    const parts = data.map((retrieve) => {
+        const headers = parseHeaders(retrieve.headers);
+
+        return flatten([
+            `--batch_${boundary}`,
+            'Content-Type: application/http',
+            'Content-Transfer-Encoding: binary',
+            '',
+
+            `GET ${retrieve.url} HTTP/1.1`,
+            headers,
+            '',
+            '',
+        ]);
+    });
+
+    return flatten(parts).concat(`--batch_${boundary}--`).join('\r\n');
 };

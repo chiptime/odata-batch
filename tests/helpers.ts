@@ -3,12 +3,26 @@ import { BatchResponseConstructor } from '../src/response';
 
 /**
  * Dummy repository for ODataBatch unit tests.
- * Tracks the last call to `send()` and returns a mocked success response.
+ * Tracks the last call to `send()` and returns a mocked success response
+ * (or the canned response passed to the constructor).
  */
 export class DummyBatchRepo implements ODataBatchRepository {
     public lastUrl = '';
     public lastRequest = '';
     public lastConfig: any = null;
+
+    constructor(
+        // Canned response so tests can assert what ODataBatch.send() resolves to
+        private response: any[] = [
+            {
+                code: '200',
+                status: 'OK',
+                headers: [],
+                data: {},
+                success: true,
+            },
+        ]
+    ) {}
 
     send(
         url: string,
@@ -20,16 +34,8 @@ export class DummyBatchRepo implements ODataBatchRepository {
         this.lastUrl = url;
         this.lastRequest = batchRequest;
         this.lastConfig = config;
-        // Return a mocked success response
-        return Promise.resolve([
-            {
-                code: '200',
-                status: 'OK',
-                headers: [],
-                data: {},
-                success: true,
-            },
-        ]);
+        // Return the mocked (or canned) response
+        return Promise.resolve(this.response);
     }
 }
 

@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Read-only batches (retrieve mode).** Pass `retrieve: RetrieveCall[]` to
+  `ODataBatch` — mutually exclusive with `calls` (`Pass either calls or
+  retrieve, not both`) — to emit each GET as a direct `application/http` batch
+  part, the OData V2 retrieve wire format, instead of wrapping operations in a
+  changeset. Retrieve entries are GET-only by construction: a `method` or
+  `data` property throws `retrieve calls are GET-only: method and data are
+  not allowed`. Per-part `Accept` derives from `individualResponseType` (a
+  custom `accept` header is replaced by it; a custom `content-type` header is
+  dropped), and urls/headers keep the line-break injection guard. New exported
+  type `RetrieveCall`. The existing `calls` modes and their wire output are
+  unchanged.
+
 ## [2.0.0] - 2026-09-15
 
 Everything since `1.2.0`. This is a major release: the runtime dependency jumped

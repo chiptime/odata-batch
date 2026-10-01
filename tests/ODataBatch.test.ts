@@ -1,4 +1,5 @@
 import { ODataBatch } from '../src/ODataBatch';
+import { RetrieveCall } from '../src/request';
 import { ODataBatchAxiosRepository } from '../src/ODataBatchAxiosRepository';
 import { DummyBatchRepo } from './helpers';
 
@@ -192,6 +193,129 @@ describe('ODataBatch', () => {
             expect(dummyRepo.lastRequest).toContain('boundary=changeset_');
             // Should contain multiple changeset boundaries
             expect(dummyRepo.lastRequest).toContain('Content-Type: multipart/mixed; boundary=');
+        });
+    });
+
+    describe('retrieve mode', () => {
+        describe('constructor()', () => {
+            test('both calls and retrieve throws error', () => {
+                // Arrange
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    calls: [{ method: 'GET', url: '/items', data: null }],
+                    retrieve: [{ url: '/items' }],
+                };
+
+                // Act & Assert
+                expect(() => new ODataBatch(config)).toThrow('Pass either calls or retrieve, not both');
+            });
+
+            test('neither calls nor retrieve throws error', () => {
+                // Arrange
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                };
+
+                // Act & Assert
+                expect(() => new ODataBatch(config)).toThrow('No calls have been passed');
+            });
+
+            test('empty retrieve throws error', () => {
+                // Arrange
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    retrieve: [] as RetrieveCall[],
+                };
+
+                // Act & Assert
+                expect(() => new ODataBatch(config)).toThrow('No calls have been passed');
+            });
+
+            test('retrieve entry with a method property throws GET-only error', () => {
+                // Arrange - a Call accidentally passed where a RetrieveCall is expected
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    retrieve: [{ url: '/items', method: 'POST' } as RetrieveCall],
+                };
+
+                // Act & Assert
+                expect(() => new ODataBatch(config)).toThrow(
+                    'retrieve calls are GET-only: method and data are not allowed'
+                );
+            });
+
+            test('retrieve entry with a data property throws GET-only error', () => {
+                // Arrange
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    retrieve: [{ url: '/items', data: { id: 1 } } as RetrieveCall],
+                };
+
+                // Act & Assert
+                expect(() => new ODataBatch(config)).toThrow(
+                    'retrieve calls are GET-only: method and data are not allowed'
+                );
+            });
+
+            test('retrieve-only construction builds without calls', () => {
+                // Arrange
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    retrieve: [{ url: '/items' }, { url: '/items(2)' }],
+                };
+
+                // Act & Assert
+                expect(() => new ODataBatch(config)).not.toThrow();
+            });
+        });
+
+        describe('send()', () => {
+            test('passes the retrieve body and batch headers to the repository', async () => {
+                // Arrange
+                const dummyRepo = new DummyBatchRepo();
+                const config = {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    retrieve: [{ url: '/items' }, { url: '/items(2)' }],
+                };
+                const batch = new ODataBatch(config, dummyRepo);
+
+                // Act
+                await batch.send();
+
+                // Assert - direct GET parts, no changeset anywhere
+                expect(dummyRepo.lastRequest).toContain('GET /items HTTP/1.1');
+                expect(dummyRepo.lastRequest).toContain('GET /items(2) HTTP/1.1');
+                expect(dummyRepo.lastRequest).not.toContain('changeset');
+                expect(dummyRepo.lastConfig.headers['Content-Type']).toBe(
+                    'multipart/mixed; boundary=batch_' + batch['boundary']
+                );
+                expect(dummyRepo.lastConfig.headers.Accept).toBe('application/json');
+            });
+
+            test('resolves to the repository results', async () => {
+                // Arrange
+                const canned = [
+                    { code: '404', status: 'Not Found', headers: [], data: { error: 'none' }, success: false },
+                ];
+                const dummyRepo = new DummyBatchRepo(canned);
+                const batch = new ODataBatch(
+                    { url: 'http://example.com/batch', auth: 'user:pass', retrieve: [{ url: '/nope' }] },
+                    dummyRepo
+                );
+
+                // Act
+                const result = await batch.send();
+
+                // Assert
+                expect(result).toEqual(canned);
+            });
         });
     });
 });

@@ -4,6 +4,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Response parser tolerates empty or whitespace-only payloads with JSON accept
+  (e.g. `204 No Content`): `data` is `null` instead of a thrown `SyntaxError`.
+  Non-JSON accept keeps the previous `''`.
+- Batch and changeset boundaries are matched literally even when they contain
+  regex metacharacters (legal per RFC 2046): previously they were interpolated
+  unescaped into the split `RegExp`, silently yielding zero or corrupted parts.
+- The `content-type` response header is now found case-insensitively
+  (RFC 9110); previously only the exact lowercase key worked, and any other
+  casing threw `Missing content-type header`.
+- One part with an unparseable JSON body no longer throws and loses its
+  siblings: `data` becomes the raw payload string for that part only.
+
+### Changed
+
+- **Behavior:** the payload parsing mode is selected by the accept media type
+  before `;` (trimmed, case-insensitive), so `application/json;odata=verbose`
+  now parses as JSON. Other accepts (e.g. `application/xml`) stay raw text.
+- **Behavior:** non-JSON payloads are no longer truncated at the first line or
+  the first blank line: `data` is everything after the status/headers block
+  with only the trailing framing CRLFs trimmed.
+- **Behavior:** header lines split at the FIRST colon with optional whitespace
+  trimmed from name and value (RFC 7230); lines without a colon still yield
+  `{key:'',value:''}`.
+- **Behavior:** the status-line regex allows an empty reason phrase
+  (RFC 7230), and an unparseable status line now yields `success: false`
+  (with `code: ''`) instead of `success: true`.
+- **Behavior:** LF-only (or mixed LF/CRLF) response bodies are normalized to
+  CRLF before parsing, so they parse instead of silently returning `[]`.
+
 ## [2.1.0] - 2026-10-02
 
 ### Added

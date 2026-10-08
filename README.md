@@ -59,8 +59,8 @@ JavaScript works the same way: `const { ODataBatch } = require('odata-batch');`
         headers: [                // inner response headers
             { key: 'Content-Type', value: 'application/json' },
         ],
-        data: { name: 'Sebastian' }, // parsed payload (see response types)
-        success: true,            // false when code is 4xx or 5xx
+        data: { name: 'Sebastian' }, // parsed payload (see below)
+        success: true,            // false when code is 4xx or 5xx, or the status line is unrecognizable
         changesetIndex: 0,        // which changeset this response belongs to
     },
 ]
@@ -68,6 +68,14 @@ JavaScript works the same way: `const { ODataBatch } = require('odata-batch');`
 
 A batch can transport HTTP 200 while individual operations failed — check
 `success` (or `code`) per entry instead of only catching the promise.
+
+Payload handling: with `individualResponseType: 'json'`, `data` is the
+`JSON.parse` result — an empty body (204) yields `null`, and a body that is
+not valid JSON yields the raw string instead of throwing (one odd part never
+destroys the batch). The accept media type is matched before `;`,
+case-insensitively, so `application/json;odata=verbose` parses as JSON. Any
+other accept returns the raw payload string, preserved in full (no truncation
+at blank lines). Response bodies may use CRLF or LF line endings.
 
 ## Multiple changesets (atomic groups)
 
@@ -158,7 +166,7 @@ changeset mode.
 | `retrieve` | `RetrieveCall[]` | — | Read-only mode: GETs sent as direct batch parts (no changeset). Mutually exclusive with `calls`. |
 | `headers` | `Record<string, string>` | — | Extra headers for the batch request itself. `Authorization` from here overrides `auth`; `Accept` and `Content-Type` are always derived from the response-type options. |
 | `batchResponseType` | `'json' \| 'xml'` | `'json'` | How `data` of each call is serialized into the batch body. `json` uses `JSON.stringify`; `xml` writes the payload verbatim. |
-| `individualResponseType` | `'json' \| 'xml'` | `'json'` | How each inner response body is parsed. `json` runs `JSON.parse`; `xml` returns the raw string. Also sent as the batch `Accept` header. |
+| `individualResponseType` | `'json' \| 'xml'` | `'json'` | How each inner response body is parsed. `json` runs `JSON.parse` (empty body → `null`, unparseable body → raw string); `xml` returns the raw string. Also sent as the batch `Accept` header. |
 | *(2nd constructor arg)* | `ODataBatchRepository` | axios adapter | Custom HTTP transport. See [Custom HTTP adapter](#custom-http-adapter). |
 
 Each `Call` accepts:
@@ -209,7 +217,9 @@ before passing them. To bypass the heuristic entirely, set
 | Payload contains the generated changeset boundary | Boundary is regenerated (up to 10 attempts), then `throw` |
 | Batch endpoint answers non-2xx | Promise **rejects** (transport error; nothing is parsed) |
 | Inner response is 4xx/5xx | Parsed normally with `success: false` — the promise still resolves |
-| Response body is not JSON while using `individualResponseType: 'json'` | `throw SyntaxError` while parsing |
+| Inner response body is not valid JSON while using `individualResponseType: 'json'` | `data` is the raw payload string for that part — no throw, siblings are preserved |
+| Inner response body is empty (204) while using `individualResponseType: 'json'` | `data` is `null` — no throw |
+| Response body uses LF-only (or mixed) line endings | Normalized to CRLF; parsed normally |
 | Response has no/invalid `content-type` boundary | `throw` with a descriptive message |
 
 ## Custom HTTP adapter

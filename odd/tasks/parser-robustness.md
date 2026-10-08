@@ -27,7 +27,7 @@ User authorized fixing group A (bugs) AND group B (behavior pinned by current te
 ## Tasks
 - [x] T1 (A1-A4): done. Route: delegated writer (trigger: 2+ non-trivial files). 196 tests, 100% cov, tsc+lint clean. RED 23 failed -> GREEN 85/85.
 - [x] T2 (B5-B9): done. Route: delegated writer. 214 tests, 100% cov. RED 25 failed -> GREEN. Also fixed latent case-sensitive changeset split (i flag).
-- [ ] T3: extend property/fuzz tests (arbitrary RFC 2046 boundaries, round-trip with `requestsToBatch`), CHANGELOG `Unreleased`, README note, PENDING.md refresh. Route: delegated writer.
+- [x] T3: done. Route: delegated writer. 218 tests, 100% cov, mutation 99.02% (2 equivalent survivors in response.ts). Property tests use the repo seeded-LCG convention (fast-check is not a dependency).
 
 ## Checks
 `npx tsc --noEmit`, `npm run lint`, `npm test` (170 tests at start; 100% line/branch coverage must hold), `npm run mutation` at the end.
@@ -36,4 +36,4 @@ User authorized fixing group A (bugs) AND group B (behavior pinned by current te
 Strategy `ask-on-risk`. Forecast ~500 authored lines (mostly tests) > 400. One work-unit commit per task (T1, T2, T3). No PR created now; chain strategy (`stacked-to-main` or `feature-branch-chain`) is asked when the user decides to open PRs.
 
 ## Progress
-(none yet)
+T1 13e6091, T2 e5adab7, T3 pending commit hash below. Pending item PENDING #14: killable survivor ODataBatch.ts:54 (retrieve per-part Accept), out of scope.

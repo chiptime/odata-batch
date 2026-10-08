@@ -102,16 +102,17 @@ describe('ODataBatch', () => {
                 auth: 'user:pass',
                 calls: [{ method: 'GET', url: '/items', data: null }],
             };
-            const beforeTime = new Date().getTime().toString();
+            jest.useFakeTimers({ now: 1700000000123 });
 
-            // Act
-            const batch = new ODataBatch(config);
-            const afterTime = new Date().getTime().toString();
+            try {
+                // Act
+                const batch = new ODataBatch(config);
 
-            // Assert
-            expect(batch['boundary']).toBeDefined();
-            expect(parseInt(batch['boundary'], 10)).toBeGreaterThanOrEqual(parseInt(beforeTime, 10));
-            expect(parseInt(batch['boundary'], 10)).toBeLessThanOrEqual(parseInt(afterTime, 10));
+                // Assert
+                expect(batch['boundary']).toBe('1700000000123');
+            } finally {
+                jest.useRealTimers();
+            }
         });
     });
 

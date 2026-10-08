@@ -298,5 +298,49 @@ Content-Type: application/json
             // Assert
             expect(result).toContain('<item>');
         });
+
+        test('parseData returns null for an empty payload with JSON accept', () => {
+            // Arrange - 204 No Content parts carry no JSON document
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/json'
+            );
+
+            // Act & Assert
+            expect(response['parseData']('')).toBeNull();
+        });
+
+        test('parseData returns null for a whitespace-only payload with JSON accept', () => {
+            // Arrange - blank payload lines are not a JSON document either
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/json'
+            );
+
+            // Act & Assert
+            expect(response['parseData']('  \r\n ')).toBeNull();
+        });
+
+        test('parseData keeps the empty string for an empty payload with non-JSON accept', () => {
+            // Arrange - raw-text consumers keep the legacy empty string
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/xml'
+            );
+
+            // Act & Assert
+            expect(response['parseData']('')).toBe('');
+        });
+
+        test('parseData returns the raw string when JSON.parse fails', () => {
+            // Arrange - one unparseable part must not throw away the batch
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/json'
+            );
+
+            // Act & Assert
+            expect(response['parseData']('not-json-at-all')).toBe('not-json-at-all');
+        });
     });
 });

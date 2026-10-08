@@ -15,7 +15,7 @@ const wire = (...lines: string[]): string => lines.join('\r\n');
 
 const BATCH_HEADERS = { 'content-type': 'multipart/mixed; boundary=batch_884' };
 
-const directPart = (statusLine: string, headers: string[], body: string): string[] => [
+const directPartLines = (statusLine: string, headers: string[], body: string): string[] => [
     '--batch_884',
     'Content-Type: application/http',
     'Content-Transfer-Encoding: binary',
@@ -25,11 +25,18 @@ const directPart = (statusLine: string, headers: string[], body: string): string
     '',
     body,
     '',
+];
+
+const directPart = (statusLine: string, headers: string[], body: string): string[] => [
+    ...directPartLines(statusLine, headers, body),
     '--batch_884--',
 ];
 
 const parse = (data: string, accept = 'application/json'): BatchResponse =>
     new BatchResponse({ data, headers: BATCH_HEADERS }, accept);
+
+const parseWithBoundary = (boundary: string, data: string, accept = 'application/json'): BatchResponse =>
+    new BatchResponse({ data, headers: { 'content-type': `multipart/mixed; boundary=${boundary}` } }, accept);
 
 describe('BatchResponse wire-format parsing (CRLF)', () => {
     describe('direct application/http parts (no changeset wrapper)', () => {
@@ -339,13 +346,32 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
             expect(response.response[0].data).toBe('<entry><id>1</id></entry>');
         });
 
-        test('accept application/json with an unparseable body throws SyntaxError', () => {
+        test('accept application/json with an unparseable body yields the raw payload string', () => {
             // Arrange - server ignored the Accept header and sent plain text
             const body = wire(...directPart('HTTP/1.1 200 OK', [], 'not-json-at-all'));
 
-            // Act & Assert - characterization: the parser does not tolerate
-            // non-JSON bodies when accept is application/json
-            expect(() => parse(body, 'application/json')).toThrow(SyntaxError);
+            // Act - one bad part must never throw and lose the batch
+            const response = parse(body, 'application/json');
+
+            // Assert - the payload is surfaced verbatim instead of throwing
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toBe('not-json-at-all');
+        });
+
+        test('one unparseable JSON part does not destroy its siblings', () => {
+            // Arrange - three parts: valid JSON, plain text, valid JSON
+            const body = wire(
+                ...directPartLines('HTTP/1.1 200 OK', [], '{"id":1}'),
+                ...directPartLines('HTTP/1.1 200 OK', ['Content-Type: text/plain'], 'oops not json'),
+                ...directPart('HTTP/1.1 200 OK', [], '{"id":3}')
+            );
+
+            // Act
+            const response = parse(body, 'application/json');
+
+            // Assert - every part survives; the bad one carries its raw body
+            expect(response.response).toHaveLength(3);
+            expect(response.response.map((r) => r.data)).toEqual([{ id: 1 }, 'oops not json', { id: 3 }]);
         });
 
         test('accept application/xml with an empty body returns empty string', () => {
@@ -368,6 +394,84 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
             // Assert
             expect(response.response[0].code).toBe('204');
             expect(response.response[0].data).toBe('');
+        });
+    });
+
+    describe('204 No Content and empty payloads (JSON accept)', () => {
+        test('204 part inside a changeset yields data null instead of throwing', () => {
+            // Arrange - SAP-style 204 inside a changeset: status line, blank
+            // line, nothing else before the closing delimiter
+            const body = wire(
+                '--batch_884',
+                'Content-Type: multipart/mixed; boundary=changeset_42',
+                '',
+                '--changeset_42',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 204 No Content',
+                '',
+                '',
+                '--changeset_42--',
+                '--batch_884--'
+            );
+
+            // Act
+            const response = parse(body, 'application/json');
+
+            // Assert - an empty 204 body carries no JSON document: null, no throw
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].code).toBe('204');
+            expect(response.response[0].data).toBeNull();
+        });
+
+        test('204 part ending right after the status line has no payload segment at all', () => {
+            // Arrange - no blank line before the closing delimiter: after the
+            // \r\n\r\n split the part has only 2 segments, so the payload
+            // segment is undefined
+            const body = wire(
+                '--batch_884',
+                'Content-Type: multipart/mixed; boundary=changeset_42',
+                '',
+                '--changeset_42',
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 204 No Content',
+                '--changeset_42--',
+                '--batch_884--'
+            );
+
+            // Act
+            const response = parse(body, 'application/json');
+
+            // Assert - the missing payload segment is treated as empty => null
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].code).toBe('204');
+            expect(response.response[0].data).toBeNull();
+        });
+
+        test('direct 204 part with an empty payload yields data null', () => {
+            // Arrange - same shape as the xml-empty test, but with JSON accept
+            const body = wire(...directPart('HTTP/1.1 204 No Content', [], ''));
+
+            // Act
+            const response = parse(body, 'application/json');
+
+            // Assert
+            expect(response.response[0].code).toBe('204');
+            expect(response.response[0].data).toBeNull();
+        });
+
+        test('whitespace-only payload with JSON accept yields data null', () => {
+            // Arrange - payload is spaces only: no JSON document either
+            const body = wire(...directPart('HTTP/1.1 204 No Content', [], '   '));
+
+            // Act
+            const response = parse(body, 'application/json');
+
+            // Assert
+            expect(response.response[0].data).toBeNull();
         });
     });
 
@@ -533,6 +637,73 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
             // Assert - the malformed boundary is preserved and still parses
             expect(response.response).toHaveLength(1);
             expect(response.response[0].data).toEqual({ ok: true });
+        });
+    });
+
+    describe('regex metacharacters in boundaries', () => {
+        test.each([
+            'batch+1',
+            'batch?1',
+            'batch(1',
+            'batch.1',
+            'a|b',
+            'a[b',
+        ])('batch boundary %s is treated as a literal delimiter', (boundary) => {
+            // Arrange - every variant is a legal RFC 2046 boundary but a regex
+            // metacharacter; unescaped interpolation corrupts the split regex
+            const body = wire(
+                `--${boundary}`,
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                '{"id":1}',
+                '',
+                `--${boundary}--`
+            );
+
+            // Act
+            const response = parseWithBoundary(boundary, body);
+
+            // Assert
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toEqual({ id: 1 });
+        });
+
+        test.each([
+            'changeset+1',
+            'changeset?1',
+            'changeset(1',
+            'changeset.1',
+            'a|b',
+            'a[b',
+        ])('changeset boundary %s is treated as a literal delimiter', (boundary) => {
+            // Arrange - the metacharacter sits in the changeset boundary
+            // declared by the part header and used by the body delimiters
+            const body = wire(
+                '--batch_884',
+                `Content-Type: multipart/mixed; boundary=${boundary}`,
+                '',
+                `--${boundary}`,
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                '',
+                'HTTP/1.1 201 Created',
+                '',
+                '{"id":1}',
+                '',
+                `--${boundary}--`,
+                '--batch_884--'
+            );
+
+            // Act
+            const response = parseWithBoundary('batch_884', body);
+
+            // Assert
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0].data).toEqual({ id: 1 });
         });
     });
 

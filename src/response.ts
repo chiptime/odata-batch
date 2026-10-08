@@ -23,6 +23,11 @@ export function createBatchResponse(
 ): BatchResponseInterface {
     return new ctor(OResponse, accept);
 }
+
+// RFC 2046 boundaries may legally contain regex metacharacters; escape them
+// so boundary delimiters are always matched literally
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export class BatchResponse implements BatchResponseInterface {
     private boundary: string;
     private accept: string;
@@ -87,21 +92,37 @@ export class BatchResponse implements BatchResponseInterface {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed payload is caller-defined
-    parseData(sData: string): any {
+    parseData(sData: string | undefined): any {
+        // A 204 No Content part can end right after its status line, leaving
+        // no payload segment at all: treat it as an empty payload
+        const payload = sData ?? '';
+
         if (this.accept === 'application/json') {
-            return JSON.parse(sData);
+            // Empty or whitespace-only payloads carry no JSON document
+            // (204 No Content): yield null instead of throwing
+            if (payload.trim() === '') {
+                return null;
+            }
+
+            try {
+                return JSON.parse(payload);
+            } catch {
+                // One unparseable part must never destroy the whole batch:
+                // surface the raw payload instead of throwing
+                return payload;
+            }
         }
 
         // /.*/ always matches a string (returning the first line, since '.'
         // excludes '\n'), so no null fallback is needed here
-        const parts = sData.match(/.*/) as RegExpMatchArray;
+        const parts = payload.match(/.*/) as RegExpMatchArray;
 
         return parts[0];
     }
 
     parseBatch(body: string): BatchResponseParsed[] {
         //Split the batch result into its associated parts
-        const batchParts = body.split(RegExp('--' + this.boundary + '(?:\r\n)?(?:--\r\n)?'));
+        const batchParts = body.split(RegExp('--' + escapeRegExp(this.boundary) + '(?:\r\n)?(?:--\r\n)?'));
 
         const parseResponses = batchParts
             .filter((batchPart: string) => RegExp('^content-type', 'i').test(batchPart))
@@ -113,7 +134,7 @@ export class BatchResponse implements BatchResponseInterface {
                     return [{ part: batchPart, changesetIndex }];
                 }
 
-                const changeSetBoundary = boundary[1];
+                const changeSetBoundary = escapeRegExp(boundary[1]);
 
                 const changeSetBody = batchPart.match(
                     RegExp('(--' + changeSetBoundary + '\r\n[^]+--' + changeSetBoundary + ')', 'i')
@@ -140,7 +161,9 @@ export class BatchResponse implements BatchResponseInterface {
     }
 
     getBoundary(headers: Record<string, string>): string {
-        const contentType = headers['content-type'];
+        // RFC 9110: header field names are case-insensitive, so the lookup
+        // must not depend on the casing the HTTP client normalized to
+        const contentType = Object.entries(headers).find(([key]) => key.toLowerCase() === 'content-type')?.[1];
         if (!contentType) {
             throw new Error('Missing content-type header, cannot determine batch boundary');
         }

@@ -98,6 +98,32 @@ describe('BatchResponse protocol conformance edges', () => {
             expect(r).toHaveLength(1);
             expect(r[0].data).toEqual({ id: 1 });
         });
+
+        test.each(['Content-Type', 'CONTENT-TYPE', 'Content-type', 'CoNtEnT-TyPe'])(
+            'header key %s is found case-insensitively (RFC 9110)',
+            (key) => {
+                // Arrange - header NAMES are case-insensitive; an unrelated
+                // key proves the scan skips non-matching entries
+                const body = wire(...part('HTTP/1.1 200 OK', [], '{"id":1}'));
+
+                // Act
+                const r = new BatchResponse(
+                    { data: body, headers: { 'x-unused': '1', [key]: 'multipart/mixed; boundary=batch_884' } },
+                    'application/json'
+                ).response;
+
+                // Assert
+                expect(r).toHaveLength(1);
+                expect(r[0].data).toEqual({ id: 1 });
+            }
+        );
+
+        test('content-type absent under any casing still throws the descriptive error', () => {
+            // Arrange & Act & Assert - other headers must not satisfy the lookup
+            expect(() =>
+                new BatchResponse({ data: 'x', headers: { accept: 'application/json' } }, 'application/json')
+            ).toThrow('Missing content-type header, cannot determine batch boundary');
+        });
     });
 
     describe('header parsing corners', () => {

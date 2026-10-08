@@ -4,8 +4,8 @@ import { BatchResponse } from '../src/response';
  * Protocol conformance edges for BatchResponse parsing:
  * - status-line variants the regex does / does not recognize
  * - boundary extraction variants (parameters, quoting)
- * - header parsing corners (no space, ':' inside values, duplicates)
- * - payload truncation and accept-string variants
+ * - header parsing corners (first-colon split, OWS, no colon, duplicates)
+ * - payload preservation and accept media-type variants
  * - bounded deterministic fuzz: garbage never hangs the parser
  */
 
@@ -71,6 +71,28 @@ describe('BatchResponse protocol conformance edges', () => {
             // Act & Assert
             expect(parse(body).response[0]).toMatchObject({ code, status: reason, success: false });
         });
+
+        test('status line with an empty reason phrase yields the code and status ""', () => {
+            // Arrange - RFC 7230 allows an empty reason phrase; only the
+            // trailing space after the code remains
+            const body = wire(...part('HTTP/1.1 204 ', [], '{"ok":true}'));
+
+            // Act & Assert
+            expect(parse(body).response[0]).toMatchObject({ code: '204', status: '', success: true });
+        });
+
+        test('unparseable status line yields success=false', () => {
+            // Arrange - a response block whose first line is not an HTTP
+            // status line cannot be confirmed successful
+            const body = wire(...part('NOT-HTTP 200 Great', [], 'x'));
+
+            // Act & Assert
+            expect(parse(body, undefined, 'application/xml').response[0]).toMatchObject({
+                code: '',
+                status: '',
+                success: false,
+            });
+        });
     });
 
     describe('boundary extraction variants', () => {
@@ -127,26 +149,49 @@ describe('BatchResponse protocol conformance edges', () => {
     });
 
     describe('header parsing corners', () => {
-        test('header without a space after the colon yields {key:"",value:""}', () => {
-            // Arrange - '(.+): (.+)' requires exactly ': '
+        test('header without a space after the colon splits into key and value', () => {
+            // Arrange - RFC 7230: the field ends at the FIRST colon; spaces
+            // around it are optional whitespace, not required syntax
             const body = wire(...part('HTTP/1.1 200 OK', ['X-NoSpace:b'], 'x'));
 
             // Act
             const r = parse(body, undefined, 'application/xml').response;
 
             // Assert
-            expect(r[0].headers).toEqual([{ key: '', value: '' }]);
+            expect(r[0].headers).toEqual([{ key: 'X-NoSpace', value: 'b' }]);
         });
 
-        test('header value containing ": " splits at the LAST occurrence', () => {
-            // Arrange - greedy (.+) backtracks from the end
+        test('header value containing ":" splits at the FIRST colon', () => {
+            // Arrange - only the first colon separates name from value
             const body = wire(...part('HTTP/1.1 200 OK', ['X-Note: time: 12:30'], 'x'));
 
             // Act
             const r = parse(body, undefined, 'application/xml').response;
 
-            // Assert - documented as-is
-            expect(r[0].headers).toEqual([{ key: 'X-Note: time', value: '12:30' }]);
+            // Assert - the colons inside the value stay in the value
+            expect(r[0].headers).toEqual([{ key: 'X-Note', value: 'time: 12:30' }]);
+        });
+
+        test('optional whitespace around the colon is trimmed from key and value (RFC 7230 OWS)', () => {
+            // Arrange
+            const body = wire(...part('HTTP/1.1 200 OK', ['X-Space :  padded  '], 'x'));
+
+            // Act
+            const r = parse(body, undefined, 'application/xml').response;
+
+            // Assert
+            expect(r[0].headers).toEqual([{ key: 'X-Space', value: 'padded' }]);
+        });
+
+        test('header line with no colon still yields {key:"",value:""}', () => {
+            // Arrange - junk lines without a colon carry no field data
+            const body = wire(...part('HTTP/1.1 200 OK', ['garbage-without-colon'], 'x'));
+
+            // Act
+            const r = parse(body, undefined, 'application/xml').response;
+
+            // Assert
+            expect(r[0].headers).toEqual([{ key: '', value: '' }]);
         });
 
         test('duplicate header keys are all preserved in order', () => {
@@ -165,28 +210,64 @@ describe('BatchResponse protocol conformance edges', () => {
     });
 
     describe('payload edges', () => {
-        test('non-XML payload containing a blank line is TRUNCATED at the first \\r\\n\\r\\n', () => {
-            // Arrange - only responseParts[2] is used as data; anything after
-            // the next blank line is silently dropped
+        test('non-JSON payload containing a blank line is preserved intact', () => {
+            // Arrange - everything after the status/headers block is payload;
+            // interior blank lines no longer truncate it
             const body = wire(...part('HTTP/1.1 200 OK', ['Content-Type: application/xml'], 'line1\r\n\r\nline2'));
 
             // Act
             const r = parse(body, undefined, 'application/xml').response;
 
-            // Assert - documented as-is
-            expect(r[0].data).toBe('line1');
+            // Assert
+            expect(r[0].data).toBe('line1\r\n\r\nline2');
         });
 
-        test('accept strings other than exactly application/json take the raw-text branch', () => {
-            // Arrange - the check is ===, not a media-type comparison
-            const body = wire(...part('HTTP/1.1 200 OK', [], '{"id":1}'));
+        test('payload is returned whole with only the framing CRLFs trimmed', () => {
+            // Arrange - multipart framing appends CRLFs after the body before
+            // the next delimiter; they are not part of the payload
+            const body = wire(...part('HTTP/1.1 200 OK', [], 'a\r\nb\r\n\r\nc'));
 
             // Act
-            const r = parse(body, undefined, 'text/json').response;
+            const r = parse(body, undefined, 'text/plain').response;
 
-            // Assert - JSON body returned as raw string
-            expect(r[0].data).toBe('{"id":1}');
+            // Assert
+            expect(r[0].data).toBe('a\r\nb\r\n\r\nc');
         });
+
+        test('JSON payload spanning blank-line whitespace parses natively (segments rejoined)', () => {
+            // Arrange - JSON allows whitespace between tokens, even blank
+            // lines; the payload segments must be rejoined before parsing
+            const body = wire(...part('HTTP/1.1 200 OK', [], '{"id":\r\n\r\n1}'));
+
+            // Act & Assert
+            expect(parse(body).response[0].data).toEqual({ id: 1 });
+        });
+
+        test.each([
+            'application/json',
+            'application/json;odata=verbose',
+            'Application/JSON',
+            'APPLICATION/JSON; odata=minimalmetadata',
+            'application/json ;q=0.9',
+        ])('accept %s selects JSON mode (media type before ";", case-insensitive)', (accept) => {
+            // Arrange - only the media type decides the mode; parameters
+            // like odata=verbose must not disable JSON parsing
+            const body = wire(...part('HTTP/1.1 200 OK', [], '{"id":1}'));
+
+            // Act & Assert
+            expect(parse(body, undefined, accept).response[0].data).toEqual({ id: 1 });
+        });
+
+        test.each(['text/json', 'application/xml', 'application/atom+xml'])(
+            'accept %s is not the application/json media type and stays raw text',
+            (accept) => {
+                // Arrange - similar-looking media types must not enter JSON mode
+                const body = wire(...part('HTTP/1.1 200 OK', [], '{"id":1}'));
+
+                // Act & Assert
+                expect(parse(body, undefined, accept).response[0].data).toBe('{"id":1}');
+            }
+        );
 
         test.each([
             ['null', null],

@@ -5,10 +5,8 @@ import { makeRandomMock } from './helpers';
 /**
  * Protocol-level tests for BatchResponse against real OData V2 wire format.
  *
- * Every fixture uses CRLF line endings, as required by the parser:
- * - parseBatch splits on '--<boundary>' and keeps only parts starting with
- *   'content-type' (case-insensitive). With LF-only bodies the parts keep a
- *   leading '\n' and get filtered out, which is documented in a dedicated test.
+ * Fixtures use CRLF line endings; LF-only and mixed bodies are normalized
+ * to CRLF by the parser before splitting (documented in a dedicated test).
  */
 
 const wire = (...lines: string[]): string => lines.join('\r\n');
@@ -38,7 +36,7 @@ const parse = (data: string, accept = 'application/json'): BatchResponse =>
 const parseWithBoundary = (boundary: string, data: string, accept = 'application/json'): BatchResponse =>
     new BatchResponse({ data, headers: { 'content-type': `multipart/mixed; boundary=${boundary}` } }, accept);
 
-describe('BatchResponse wire-format parsing (CRLF)', () => {
+describe('BatchResponse wire-format parsing', () => {
     describe('direct application/http parts (no changeset wrapper)', () => {
         test('parses code, status, headers, JSON data and success', () => {
             // Arrange
@@ -293,7 +291,7 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
             expect(() => parse(body)).toThrow(TypeError);
         });
 
-        test('response block without an HTTP status line yields empty code/status and success=true', () => {
+        test('response block without an HTTP status line yields empty code/status and success=false', () => {
             // Arrange - first line of the response block is not 'HTTP/1.1 ### ...';
             // also covers the malformed-header branch that returns {key:"",value:""}
             const body = wire(
@@ -312,12 +310,13 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
             // Act
             const response = parse(body, 'application/xml');
 
-            // Assert - no matchable status -> code '' -> neither 4xx nor 5xx -> success true
+            // Assert - no matchable status -> code '' -> cannot be confirmed
+            // successful (B8)
             expect(response.response[0].code).toBe('');
             expect(response.response[0].status).toBe('');
-            expect(response.response[0].success).toBe(true);
+            expect(response.response[0].success).toBe(false);
             expect(response.response[0].headers).toEqual([
-                { key: '', value: '' }, // 'GARBAGE FIRST LINE' has no ': ' separator
+                { key: '', value: '' }, // 'GARBAGE FIRST LINE' has no colon
                 { key: 'X-Header', value: 'v' },
             ]);
             expect(response.response[0].data).toBe('BODY');
@@ -476,7 +475,7 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
     });
 
     describe('CRLF vs LF line endings', () => {
-        test('LF-only body yields an empty response array (parser requires CRLF)', () => {
+        test('LF-only body parses after line-ending normalization', () => {
             // Arrange - same shape as a valid fixture but joined with bare '\n'
             const body = [
                 '--batch_884',
@@ -494,9 +493,34 @@ describe('BatchResponse wire-format parsing (CRLF)', () => {
             // Act
             const response = parse(body);
 
-            // Assert - after the boundary split, parts start with '\n', which
-            // fails the '^content-type' filter: nothing is parsed
-            expect(response.response).toEqual([]);
+            // Assert - LF-only bodies are normalized to CRLF before parsing
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '200', status: 'OK', success: true });
+            expect(response.response[0].data).toEqual({ id: 1 });
+        });
+
+        test('body mixing CRLF and LF line endings parses', () => {
+            // Arrange - each line break is a different mix of endings
+            const body = [
+                '--batch_884\n',
+                'Content-Type: application/http\r\n',
+                'Content-Transfer-Encoding: binary\n',
+                '\r\n',
+                'HTTP/1.1 200 OK\n',
+                'Content-Type: application/json\r\n',
+                '\n',
+                '{"id":1}\n',
+                '\r\n',
+                '--batch_884--',
+            ].join('');
+
+            // Act
+            const response = parse(body);
+
+            // Assert - mixed endings are normalized to CRLF before parsing
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '200', status: 'OK', success: true });
+            expect(response.response[0].data).toEqual({ id: 1 });
         });
     });
 

@@ -49,38 +49,34 @@ export class BatchResponse implements BatchResponseInterface {
     }
 
     parseResponse(part: string): BatchResponseParsed {
+        // Split into part headers, status+response headers and payload. Only
+        // the first two blank-line separators are structural: everything
+        // after them is payload, even when the payload itself contains
+        // blank lines.
         const responseParts = part.split('\r\n\r\n');
-        //responseParts[1] are headers for the part
-        //responseParts[2] is the responses code and headers
-        //responseParts[3] is data
 
         const httpResponseWithHeaders = responseParts[1].split('\r\n');
 
-        const regCodeAndStatus = RegExp('HTTP/1\\.[01] ([0-9]{3}) (.+)');
+        // RFC 7230 allows an empty reason phrase ("HTTP/1.1 204 ")
+        const regCodeAndStatus = RegExp('HTTP/1\\.[01] ([0-9]{3})(?: (.*))?');
 
         const headers = httpResponseWithHeaders
             .filter((header: string) => !regCodeAndStatus.test(header))
-            .map((header: string) => {
-                const headerKeyAndValue = header.match('(.+): (.+)');
-                if (!headerKeyAndValue) {
-                    return {
-                        key: '',
-                        value: '',
-                    };
-                }
-
-                return {
-                    key: headerKeyAndValue[1],
-                    value: headerKeyAndValue[2],
-                };
-            });
+            .map((header: string) => this.parseHeaderLine(header));
 
         const httpCodeAndDesc = httpResponseWithHeaders[0].match(regCodeAndStatus);
 
         const code = (httpCodeAndDesc && httpCodeAndDesc[1]) || '';
-        const success = code.substring(0, 1) != '4' && code.substring(0, 1) != '5';
+        // An unparseable status line cannot be confirmed successful: only a
+        // recognized 1xx/2xx/3xx code counts as success
+        const success =
+            httpCodeAndDesc !== null && code.substring(0, 1) != '4' && code.substring(0, 1) != '5';
 
-        const data = this.parseData(responseParts[2]);
+        // The payload is everything after the status/headers block; the
+        // trailing CRLFs belong to the multipart framing, not the payload
+        const payload = responseParts.slice(2).join('\r\n\r\n').replace(/(?:\r\n)+$/, '');
+
+        const data = this.parseData(payload);
 
         return {
             code,
@@ -91,13 +87,31 @@ export class BatchResponse implements BatchResponseInterface {
         };
     }
 
+    // RFC 7230: a header field ends at its FIRST colon; optional whitespace
+    // around the separator is not part of the name or the value. A line
+    // without a colon carries no field data.
+    parseHeaderLine(line: string): { key: string; value: string } {
+        const separator = line.indexOf(':');
+        if (separator === -1) {
+            return {
+                key: '',
+                value: '',
+            };
+        }
+
+        return {
+            key: line.slice(0, separator).trim(),
+            value: line.slice(separator + 1).trim(),
+        };
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed payload is caller-defined
     parseData(sData: string | undefined): any {
         // A 204 No Content part can end right after its status line, leaving
         // no payload segment at all: treat it as an empty payload
         const payload = sData ?? '';
 
-        if (this.accept === 'application/json') {
+        if (this.acceptsJson()) {
             // Empty or whitespace-only payloads carry no JSON document
             // (204 No Content): yield null instead of throwing
             if (payload.trim() === '') {
@@ -113,16 +127,23 @@ export class BatchResponse implements BatchResponseInterface {
             }
         }
 
-        // /.*/ always matches a string (returning the first line, since '.'
-        // excludes '\n'), so no null fallback is needed here
-        const parts = payload.match(/.*/) as RegExpMatchArray;
+        return payload;
+    }
 
-        return parts[0];
+    // The Accept header may carry parameters ('application/json;odata=verbose'):
+    // only the media type (before ';', trimmed, case-insensitive) selects the
+    // payload parsing mode
+    acceptsJson(): boolean {
+        return this.accept.split(';')[0].trim().toLowerCase() === 'application/json';
     }
 
     parseBatch(body: string): BatchResponseParsed[] {
+        // The framing below is CRLF-based; tolerate LF-only or mixed line
+        // endings by normalizing every line break to CRLF first
+        const normalizedBody = body.replace(/\r?\n/g, '\r\n');
+
         //Split the batch result into its associated parts
-        const batchParts = body.split(RegExp('--' + escapeRegExp(this.boundary) + '(?:\r\n)?(?:--\r\n)?'));
+        const batchParts = normalizedBody.split(RegExp('--' + escapeRegExp(this.boundary) + '(?:\r\n)?(?:--\r\n)?'));
 
         const parseResponses = batchParts
             .filter((batchPart: string) => RegExp('^content-type', 'i').test(batchPart))
@@ -142,7 +163,10 @@ export class BatchResponse implements BatchResponseInterface {
 
                 const changeSetParts =
                     (changeSetBody &&
-                        changeSetBody[1].split(RegExp('--' + changeSetBoundary + '(?:\r\n)?(?:--\r\n)?'))) ||
+                        // Split with the same case-insensitivity as the changeset
+                        // body match above, so declared/used case mismatches do
+                        // not leave delimiters inside the parts
+                        changeSetBody[1].split(RegExp('--' + changeSetBoundary + '(?:\r\n)?(?:--\r\n)?', 'i'))) ||
                     [];
 
                 // Return each changeset part with its changesetIndex

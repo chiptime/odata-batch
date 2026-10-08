@@ -50,11 +50,11 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert
-            expect(response.response).toBeDefined();
-            expect(Array.isArray(response.response)).toBe(true);
-            // Note: Based on investigation, the parser may return an empty array
-            // for this format. This test documents the current behavior.
+            // Assert - LF-only bodies are normalized to CRLF (B9), so the
+            // part parses like a wire body
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '200', status: 'OK', success: true });
+            expect(response.response[0].data).toEqual({ id: 1, name: 'test' });
         });
 
         test('4xx status sets success=false', () => {
@@ -75,15 +75,10 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert
-            expect(response.response).toBeDefined();
-            // Verify any 4xx responses have success=false
-            response.response.forEach((item) => {
-                if (item.code.startsWith('4')) {
-                    expect(item.success).toBe(false);
-                }
-            });
-            // Note: This test documents current behavior - parser may return empty
+            // Assert - the LF-only fixture parses after normalization (B9)
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '400', status: 'Bad Request', success: false });
+            expect(response.response[0].data).toEqual({ error: 'Invalid input' });
         });
 
         test('5xx status sets success=false', () => {
@@ -104,15 +99,10 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert
-            expect(response.response).toBeDefined();
-            // Verify any 5xx responses have success=false
-            response.response.forEach((item) => {
-                if (item.code.startsWith('5')) {
-                    expect(item.success).toBe(false);
-                }
-            });
-            // Note: This test documents current behavior - parser may return empty
+            // Assert - the LF-only fixture parses after normalization (B9)
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '500', status: 'Internal Server Error', success: false });
+            expect(response.response[0].data).toEqual({ error: 'Server error' });
         });
 
         test('multi-changeset response assigns correct indices', () => {
@@ -150,14 +140,12 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert - verify parsing occurred and has correct structure
-            expect(response.response).toBeDefined();
-            expect(Array.isArray(response.response)).toBe(true);
-
-            // For multi-changeset format, entries should have changesetIndex
-            if (response.response.length > 0) {
-                expect('changesetIndex' in response.response[0]).toBe(true);
-            }
+            // Assert - one parsed response per changeset, indices in order
+            expect(response.response).toHaveLength(2);
+            expect(response.response.map((item) => [item.code, item.changesetIndex])).toEqual([
+                ['200', 0],
+                ['201', 1],
+            ]);
         });
 
         test('single/legacy changeset response assigns changesetIndex 0', () => {
@@ -182,13 +170,10 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert
-            expect(response.response).toBeDefined();
-            expect(Array.isArray(response.response)).toBe(true);
-            // All entries should have changesetIndex: 0
-            response.response.forEach((item) => {
-                expect(item.changesetIndex).toBe(0);
-            });
+            // Assert - the single changeset parses with index 0
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toMatchObject({ code: '200', changesetIndex: 0 });
+            expect(response.response[0].data).toEqual({ id: 1, name: 'test' });
         });
 
         test('failed changeset (4xx) does not break adjacent responses indices', () => {
@@ -225,14 +210,12 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert
-            expect(response.response).toBeDefined();
-            expect(Array.isArray(response.response)).toBe(true);
-
-            // Verify changesetIndex field exists in parsed items
-            if (response.response.length > 0) {
-                expect('changesetIndex' in response.response[0]).toBe(true);
-            }
+            // Assert - the 4xx part keeps success=false and both indices survive
+            expect(response.response).toHaveLength(2);
+            expect(response.response.map((item) => [item.code, item.success, item.changesetIndex])).toEqual([
+                ['400', false, 0],
+                ['200', true, 1],
+            ]);
         });
 
         test('BatchResponseParsed includes changesetIndex field', () => {
@@ -257,14 +240,9 @@ Content-Type: application/json
             // Act
             const response = new BatchResponse({ data: responseData, headers }, 'application/json');
 
-            // Assert
-            expect(response.response).toBeDefined();
-            expect(Array.isArray(response.response)).toBe(true);
-            if (response.response.length > 0) {
-                const firstItem = response.response[0];
-                // Verify changesetIndex exists (can be undefined for edge cases)
-                expect('changesetIndex' in firstItem).toBe(true);
-            }
+            // Assert - the parsed entry carries the changesetIndex field
+            expect(response.response).toHaveLength(1);
+            expect('changesetIndex' in response.response[0]).toBe(true);
         });
     });
 
@@ -284,9 +262,10 @@ Content-Type: application/json
             expect(result).toEqual({ key: 'value', number: 123 });
         });
 
-        test('parseData returns first match when accept is not JSON', () => {
-            // Arrange
-            const xmlData = '<item><id>1</id></item>';
+        test('parseData returns the raw payload verbatim when accept is not JSON', () => {
+            // Arrange - non-JSON payloads are surfaced whole, including line
+            // breaks: no first-line truncation
+            const xmlData = '<item>\r\n<id>1</id>\r\n</item>';
 
             // Act
             const response = new BatchResponse(
@@ -296,7 +275,51 @@ Content-Type: application/json
             const result = response['parseData'](xmlData);
 
             // Assert
-            expect(result).toContain('<item>');
+            expect(result).toBe('<item>\r\n<id>1</id>\r\n</item>');
+        });
+
+        test('parseData as JSON when accept carries parameters (application/json;odata=verbose)', () => {
+            // Arrange - the media type before ';' decides the mode
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/json;odata=verbose'
+            );
+
+            // Act & Assert
+            expect(response['parseData']('{"key":"value"}')).toEqual({ key: 'value' });
+        });
+
+        test('parseData as JSON when accept differs in case (Application/JSON)', () => {
+            // Arrange - media types are case-insensitive
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'Application/JSON'
+            );
+
+            // Act & Assert
+            expect(response['parseData']('{"key":"value"}')).toEqual({ key: 'value' });
+        });
+
+        test('parseData treats an undefined payload as empty (JSON accept => null)', () => {
+            // Arrange - defensive contract of the public string | undefined param
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/json'
+            );
+
+            // Act & Assert
+            expect(response['parseData'](undefined)).toBeNull();
+        });
+
+        test('parseData treats an undefined payload as empty (raw accept => empty string)', () => {
+            // Arrange - the same defensive contract on the raw-text branch
+            const response = new BatchResponse(
+                { data: '', headers: { 'content-type': 'multipart/mixed; boundary=test' } },
+                'application/xml'
+            );
+
+            // Act & Assert
+            expect(response['parseData'](undefined)).toBe('');
         });
 
         test('parseData returns null for an empty payload with JSON accept', () => {

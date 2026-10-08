@@ -26,7 +26,7 @@ User authorized fixing group A (bugs) AND group B (behavior pinned by current te
 
 ## Tasks
 - [x] T1 (A1-A4): done. Route: delegated writer (trigger: 2+ non-trivial files). 196 tests, 100% cov, tsc+lint clean. RED 23 failed -> GREEN 85/85.
-- [ ] T2 (B5-B9): fixes + update the pinned tests. Route: delegated writer.
+- [x] T2 (B5-B9): done. Route: delegated writer. 214 tests, 100% cov. RED 25 failed -> GREEN. Also fixed latent case-sensitive changeset split (i flag).
 - [ ] T3: extend property/fuzz tests (arbitrary RFC 2046 boundaries, round-trip with `requestsToBatch`), CHANGELOG `Unreleased`, README note, PENDING.md refresh. Route: delegated writer.
 
 ## Checks

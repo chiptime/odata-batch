@@ -129,6 +129,70 @@ describe('operationsToBatch() wire format', () => {
         expect(() => operationsToBatch(operations as (RetrieveCall | Call[])[], '884', ACCEPT_JSON)).toThrow();
     });
 
+    test('changeset part preserves custom headers and overrides content-type and accept when provided', () => {
+        const restore = makeRandomMock(1);
+        try {
+            const resultWithOverrides = operationsToBatch(
+                [
+                    [
+                        {
+                            method: 'POST',
+                            url: '/api/b',
+                            data: {},
+                            headers: { 'Content-Type': 'old/type', Accept: 'old/accept', 'X-Custom': 'val' },
+                        },
+                    ],
+                ],
+                '884',
+                ACCEPT_JSON
+            );
+            expect(resultWithOverrides).toContain('Content-Type: application/json');
+            expect(resultWithOverrides).toContain('Accept: application/json');
+            expect(resultWithOverrides).toContain('X-Custom: val');
+
+            const resultWithoutOverrides = operationsToBatch(
+                [
+                    [
+                        {
+                            method: 'POST',
+                            url: '/api/b',
+                            data: {},
+                            headers: { 'Content-Type': 'keep/type', Accept: 'keep/accept', 'X-Custom': 'val2' },
+                        },
+                    ],
+                ],
+                '884',
+                {}
+            );
+            expect(resultWithoutOverrides).toContain('Content-Type: keep/type');
+            expect(resultWithoutOverrides).toContain('Accept: keep/accept');
+            expect(resultWithoutOverrides).toContain('X-Custom: val2');
+        } finally {
+            restore();
+        }
+    });
+
+    test('retrieve part preserves custom headers and drops content-type and accept from custom headers', () => {
+        const restore = makeRandomMock(1);
+        try {
+            const result = operationsToBatch(
+                [
+                    {
+                        url: '/get-headers',
+                        headers: { 'content-type': 'dropped', accept: 'dropped', 'x-custom': '123' },
+                    },
+                ],
+                '884',
+                ACCEPT_JSON
+            );
+            expect(result).toContain('Accept: application/json');
+            expect(result).toContain('x-custom: 123');
+            expect(result).not.toContain('dropped');
+        } finally {
+            restore();
+        }
+    });
+
     test('duplicate contentId within one operations changeset is rejected', () => {
         const restore = makeRandomMock(1);
         try {

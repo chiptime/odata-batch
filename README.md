@@ -292,11 +292,11 @@ parts.
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `url` | `string` | — | The `$batch` endpoint. **Required.** |
-| `auth` | `string` | — | Basic-auth credential. See [Authentication](#authentication). **Required.** |
+| `auth` | `string` | — | Basic-auth credential. See [Authentication](#authentication). Must not contain line breaks. **Required.** |
 | `calls` | `Call[] \| Call[][]` | — | Operations to send. Empty arrays are rejected. Mutually exclusive with `retrieve` and `operations`. |
 | `retrieve` | `RetrieveCall[]` | — | Read-only mode: GETs sent as direct batch parts (no changeset). Mutually exclusive with `calls` and `operations`. |
 | `operations` | `(RetrieveCall \| Call[])[]` | — | Ordered mixed mode: direct GET entries and atomic changesets interleaved in order. Mutually exclusive with `calls` and `retrieve`. |
-| `headers` | `Record<string, string>` | — | Extra headers for the batch request itself. `Authorization` from here overrides `auth`; `Accept` and `Content-Type` are always derived from the response-type options. |
+| `headers` | `Record<string, string>` | — | Extra headers for the batch request itself. Keys and values must not contain line breaks. `Authorization` from here overrides `auth`; `Accept` and `Content-Type` are always derived from the response-type options. |
 | `batchResponseType` | `string` | `'json'` | JSON/XML alias or supported MIME type (see below). Controls call body serialization and inner `Content-Type`: JSON uses `JSON.stringify`; XML writes the payload verbatim. |
 | `individualResponseType` | `string` | `'json'` | JSON/XML alias or supported MIME type (see below). Controls inner response parsing and `Accept`: JSON runs `JSON.parse` (empty body → `null`, unparseable body → raw string); XML returns the raw string. |
 | *(2nd constructor arg)* | `ODataBatchRepository` | axios adapter | Custom HTTP transport. See [Custom HTTP adapter](#custom-http-adapter). |
@@ -336,7 +336,7 @@ Each `Call` accepts:
 
 | Field | Type | Description |
 |---|---|---|
-| `method` | `string` | HTTP method (any casing; normalized to uppercase). |
+| `method` | `string` | HTTP method (any casing; normalized to uppercase). Must be a valid RFC 9110 HTTP token. |
 | `url` | `string` | Request URL. Must not contain line breaks. |
 | `data` | `any` | Payload: serialized per `batchResponseType`. |
 | `headers` | `Record<string, string \| number>` | Optional. `Content-Type`/`Accept` here are overridden by the response-type options; every other header passes through verbatim. |
@@ -380,10 +380,13 @@ before passing them. To bypass the heuristic entirely, set
 | Unsupported or malformed response-type option | `throw` at construction: `<option> must be a supported JSON or XML media type` |
 | Invalid explicit `contentId` | `throw` before sending: `Call contentId must be a nonempty HTTP token` |
 | Duplicate explicit `contentId` within a changeset | `throw` before sending: `Duplicate contentId within a changeset: <id>` |
-| Line breaks (`\r`/`\n`) in a call or retrieve url, method or header | `throw` before sending — blocks header injection into the MIME part |
-| Payload contains the generated changeset boundary | Boundary is regenerated (up to 10 attempts), then `throw` |
+| Line breaks (`\r`/`\n`) in `auth` or batch root `headers` | `throw` at construction: `Call auth must not contain line breaks` or `Call header '<key>' must not contain line breaks` |
+| Line breaks (`\r`/`\n`) in a call or retrieve `url` or `headers` | `throw` before sending — blocks header injection into the MIME part |
+| Invalid HTTP method in `Call` | `throw` before sending: `Call method must be a valid HTTP token` |
+| Payload contains the generated batch or changeset boundary | Boundary is regenerated (up to 10 attempts), then `throw` |
 | Batch endpoint answers non-2xx | Promise **rejects** (transport error; nothing is parsed) |
 | Inner response is 4xx/5xx | Parsed normally with `success: false` — the promise still resolves |
+| Truncated or malformed inner response part (missing header separation) | Parsed with `success: false` and raw unparsed part text in `data` — no throw, siblings are preserved |
 | Inner response body is not valid JSON while using `individualResponseType: 'json'` | `data` is the raw payload string for that part — no throw, siblings are preserved |
 | Inner response body is empty (204) while using `individualResponseType: 'json'` | `data` is `null` — no throw |
 | Response body uses LF-only (or mixed) line endings | Normalized to CRLF; parsed normally |

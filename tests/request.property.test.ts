@@ -263,7 +263,7 @@ describe('requestsToBatch() security / robustness characterizations', () => {
                 '884',
                 JSON_OPTS
             )
-        ).toThrow('Call method must not contain line breaks');
+        ).toThrow('Call method must be a valid HTTP token');
 
         // header value (string)
         expect(() =>

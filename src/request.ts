@@ -35,6 +35,14 @@ const ensureNoLineBreak = (label: string, value: string): void => {
     }
 };
 
+const HTTP_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+const ensureMethodIsSafe = (method: string): void => {
+    if (typeof method !== 'string' || !HTTP_TOKEN.test(method)) {
+        throw new Error('Call method must be a valid HTTP token');
+    }
+};
+
 const ensureHeadersAreSafe = (headers?: Record<string, string | number>): void => {
     if (!headers) {
         return;
@@ -49,7 +57,7 @@ const ensureHeadersAreSafe = (headers?: Record<string, string | number>): void =
 
 const ensureCallIsSafe = (call: Call): void => {
     ensureNoLineBreak('url', call.url);
-    ensureNoLineBreak('method', call.method);
+    ensureMethodIsSafe(call.method);
     ensureHeadersAreSafe(call.headers);
 };
 

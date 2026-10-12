@@ -2,6 +2,42 @@ import { requestsToBatch } from '../src/request';
 import { makeRandomMock } from './helpers';
 
 describe('requestsToBatch()', () => {
+    describe('optional MIME Content-ID', () => {
+        afterEach(() => jest.restoreAllMocks());
+
+        test.each([false, true])('emits Content-ID outside HTTP headers with multi=%s', (multi) => {
+            makeRandomMock(42);
+            const calls = [
+                { method: 'POST', url: '/Items', data: { name: 'one' }, contentId: '1' },
+                { method: 'POST', url: '$1/Lines', data: {}, contentId: 'line-2' },
+            ];
+            const result = requestsToBatch(multi ? [calls] : calls, 'id', {
+                contentType: 'application/json',
+                accept: 'application/json',
+            });
+
+            expect(result).toContain('Content-Transfer-Encoding: binary\r\nContent-ID: 1\r\n\r\nPOST /Items HTTP/1.1');
+            expect(result).toContain('Content-ID: line-2\r\n\r\nPOST $1/Lines HTTP/1.1');
+            expect(result.match(/^Content-ID:/gm)).toHaveLength(2);
+        });
+
+        test.each(['0', 'order_1', 'Case.ID-2', 'id+tag.example'])(
+            'preserves safe identifier %s verbatim',
+            (contentId) => {
+                makeRandomMock(42);
+                const calls = [{ method: 'POST', url: '/Items', data: {}, contentId }];
+                expect(requestsToBatch(calls, 'id', {})).toContain(`Content-ID: ${contentId}\r\n\r\nPOST`);
+            }
+        );
+
+        test('dependent URLs do not infer an identifier', () => {
+            makeRandomMock(42);
+            const result = requestsToBatch([{ method: 'POST', url: '$1/Lines', data: {} }], 'id', {});
+            expect(result).toContain('POST $1/Lines HTTP/1.1');
+            expect(result).not.toContain('Content-ID:');
+        });
+    });
+
     describe('produces valid batch envelope', () => {
         afterEach(() => {
             jest.restoreAllMocks();

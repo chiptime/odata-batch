@@ -88,6 +88,51 @@ describe('public API surface (src/index)', () => {
 });
 
 describe('ODataBatch response-type mapping', () => {
+    test.each([
+        ['JSON', 'application/json', { id: 1 }, '{"id":1}'],
+        ['XML', 'application/xml', '<item/>', '<item/>'],
+        [' json ', 'application/json', { id: 1 }, '{"id":1}'],
+        ['application/json', 'application/json', { id: 1 }, '{"id":1}'],
+        ['Application/JSON;odata=verbose', 'application/json;odata=verbose', { id: 1 }, '{"id":1}'],
+        [' application/json ; charset="UTF-8" ', 'application/json ; charset="UTF-8"', { id: 1 }, '{"id":1}'],
+        ['application/xml', 'application/xml', '<item/>', '<item/>'],
+        ['Application/XML;charset=utf-8', 'application/xml;charset=utf-8', '<item/>', '<item/>'],
+        ['text/xml', 'text/xml', '<item/>', '<item/>'],
+        ['TEXT/XML; charset=utf-8', 'text/xml; charset=utf-8', '<item/>', '<item/>'],
+        ['application/atom+xml', 'application/atom+xml', '<entry/>', '<entry/>'],
+        ['APPLICATION/ATOM+XML;type=entry', 'application/atom+xml;type=entry', '<entry/>', '<entry/>'],
+        [
+            'application/json;CHARSET = "UTF-8";profile=""',
+            'application/json;CHARSET = "UTF-8";profile=""',
+            { id: 1 },
+            '{"id":1}',
+        ],
+        [
+            'application/json;profile="a;b\\"c";odata=verbose',
+            'application/json;profile="a;b\\"c";odata=verbose',
+            { id: 1 },
+            '{"id":1}',
+        ],
+    ])('normalizes %s and preserves safe parameters on the public wire', async (value, expected, data, body) => {
+        const repo = new DummyBatchRepo();
+        const batch = new ODataBatch(
+            {
+                url: 'http://example.com/batch',
+                auth: 'user:pass',
+                calls: [{ method: 'POST', url: '/items', data }],
+                batchResponseType: value,
+                individualResponseType: value,
+            },
+            repo
+        );
+
+        await batch.send();
+
+        expect(repo.lastRequest).toContain(`\r\nContent-Type: ${expected}\r\nAccept: ${expected}\r\n`);
+        expect(repo.lastRequest).toContain(`\r\n\r\n${body}\r\n`);
+        expect(repo.lastConfig.headers.Accept).toBe(expected);
+    });
+
     test('defaults map BOTH response types to application/json and reach the wire', async () => {
         // Arrange - pins the default 'json' parameter value and the ternary
         // true-branch end to end

@@ -6,7 +6,17 @@ export interface BatchResponseParsed {
     data: any;
     success: boolean;
     changesetIndex?: number;
+    contentId?: string;
 }
+
+export type BatchRequestPart = { kind: 'retrieve' } | { kind: 'changeset'; operationCount: number };
+export type BatchRequestLayout = readonly BatchRequestPart[];
+
+export type BatchResponseGroup =
+    | { kind: 'changeset'; partIndex: number; responses: BatchResponseParsed[] }
+    | { kind: 'changeset-error'; partIndex: number; error: BatchResponseParsed }
+    | { kind: 'retrieve'; partIndex: number; response: BatchResponseParsed }
+    | { kind: 'unclassified'; partIndex: number; response: BatchResponseParsed };
 
 export interface BatchResponseInterface {
     response: BatchResponseParsed[];
@@ -31,6 +41,7 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 export class BatchResponse implements BatchResponseInterface {
     private boundary: string;
     private accept: string;
+    private rawBody: string;
     response: BatchResponseParsed[];
 
     constructor({ data, headers }: { data: string; headers: Record<string, string> }, accept: string) {
@@ -38,8 +49,124 @@ export class BatchResponse implements BatchResponseInterface {
         this.ensureHasAccept();
 
         this.boundary = this.getBoundary(headers);
+        this.rawBody = data;
 
         this.response = this.parseBatch(data);
+    }
+
+    get groupedResponse(): BatchResponseGroup[] {
+        return this.parseGrouped();
+    }
+
+    // Grouping is opt-in and strict. The flat parser above retains its legacy
+    // permissive behavior; raw HTTP parts are ambiguous without request layout.
+    parseGrouped(layout?: BatchRequestLayout): BatchResponseGroup[] {
+        const parts = this.splitGroupedMultipart(this.rawBody.replace(/\r?\n/g, '\r\n'), this.boundary);
+        if (layout) {
+            if (!Array.isArray(layout) || layout.length !== parts.length) {
+                throw new Error('Grouped response part count does not match request layout');
+            }
+            layout.forEach((entry) => {
+                if (
+                    !entry ||
+                    (entry.kind !== 'retrieve' && entry.kind !== 'changeset') ||
+                    (entry.kind === 'changeset' &&
+                        (!Number.isInteger(entry.operationCount) || entry.operationCount < 1))
+                ) {
+                    throw new Error('Grouped response has invalid request layout');
+                }
+            });
+        }
+
+        return parts.map((part, partIndex): BatchResponseGroup => {
+            const mime = this.readGroupedMime(part);
+            const expected = layout?.[partIndex];
+            if (mime.mediaType === 'multipart/mixed') {
+                if (expected?.kind === 'retrieve') {
+                    throw new Error('Grouped response changeset does not match retrieve layout');
+                }
+                const boundary = mime.contentType.match(/(?:^|;) *boundary *= *(?:"([^"\r\n]+)"|([^;"\r\n]+))(?=;|$)/i);
+                if (!boundary) {
+                    throw new Error('Grouped response changeset is missing a valid boundary');
+                }
+                const children = this.splitGroupedMultipart(mime.body, (boundary[1] ?? boundary[2]).trim());
+                const responses = children.map((child) => this.parseGroupedHttp(child, partIndex));
+                if (
+                    !responses.length ||
+                    (expected?.kind === 'changeset' && responses.length !== expected.operationCount)
+                ) {
+                    throw new Error('Grouped response changeset operation count does not match request layout');
+                }
+                return { kind: 'changeset', partIndex, responses };
+            }
+
+            const response = this.parseGroupedHttp(part, partIndex);
+            if (!expected) {
+                return { kind: 'unclassified', partIndex, response };
+            }
+            if (expected.kind === 'retrieve') {
+                return { kind: 'retrieve', partIndex, response };
+            }
+            if (!/^[45][0-9]{2}$/.test(response.code)) {
+                throw new Error('Grouped response expected a multipart changeset or whole-changeset HTTP error');
+            }
+            return { kind: 'changeset-error', partIndex, error: response };
+        });
+    }
+
+    private readGroupedMime(part: string): { contentType: string; mediaType: string; body: string } {
+        const trimmed = part.trimStart();
+        const separator = trimmed.indexOf('\r\n\r\n');
+        if (separator === -1) {
+            throw new Error('Grouped response part is missing MIME header separation');
+        }
+        const contentType = trimmed
+            .slice(0, separator)
+            .split('\r\n')
+            .map((line) => this.parseHeaderLine(line))
+            .find(({ key }) => key.toLowerCase() === 'content-type')?.value;
+        if (!contentType) {
+            throw new Error('Grouped response part is missing Content-Type');
+        }
+        return {
+            contentType,
+            mediaType: contentType.split(';')[0].trim().toLowerCase(),
+            body: trimmed.slice(separator + 4),
+        };
+    }
+
+    private parseGroupedHttp(part: string, partIndex: number): BatchResponseParsed {
+        const mime = this.readGroupedMime(part);
+        if (
+            mime.mediaType !== 'application/http' ||
+            !/^HTTP\/1\.[01] [0-9]{3}(?: [^\r\n]*)?$/.test(mime.body.split('\r\n')[0])
+        ) {
+            throw new Error('Grouped response expected an application/http response with a valid status line');
+        }
+        return { ...this.parseResponse(part.trimStart()), changesetIndex: partIndex };
+    }
+
+    private splitGroupedMultipart(body: string, boundary: string): string[] {
+        if (!boundary || /[\r\n]/.test(boundary)) {
+            throw new Error('Grouped response has an invalid multipart boundary');
+        }
+        if (!body.trim()) {
+            return [];
+        }
+        // Delimiters must occupy complete lines, not substrings in payloads.
+        const delimiter = new RegExp(`^--${escapeRegExp(boundary)}(--)?[ \\t]*(?:\\r\\n|$)`, 'gm');
+        const parts: string[] = [];
+        let start: number | undefined;
+        for (const match of body.matchAll(delimiter)) {
+            if (start !== undefined) {
+                parts.push(body.slice(start, match.index));
+            }
+            if (match[1]) {
+                return parts;
+            }
+            start = match.index + match[0].length;
+        }
+        throw new Error('Grouped response multipart is missing a matching closing boundary');
     }
 
     ensureHasAccept(): void {
@@ -54,6 +181,12 @@ export class BatchResponse implements BatchResponseInterface {
         // after them is payload, even when the payload itself contains
         // blank lines.
         const responseParts = part.split('\r\n\r\n');
+        // Only MIME headers identify the operation; an inner HTTP Content-ID
+        // remains in `headers` and must never be inferred as MIME metadata.
+        const contentId = responseParts[0]
+            .split('\r\n')
+            .map((line) => this.parseHeaderLine(line))
+            .find(({ key }) => key.toLowerCase() === 'content-id')?.value;
 
         const httpResponseWithHeaders = responseParts[1].split('\r\n');
 
@@ -69,12 +202,14 @@ export class BatchResponse implements BatchResponseInterface {
         const code = (httpCodeAndDesc && httpCodeAndDesc[1]) || '';
         // An unparseable status line cannot be confirmed successful: only a
         // recognized 1xx/2xx/3xx code counts as success
-        const success =
-            httpCodeAndDesc !== null && code.substring(0, 1) != '4' && code.substring(0, 1) != '5';
+        const success = httpCodeAndDesc !== null && code.substring(0, 1) != '4' && code.substring(0, 1) != '5';
 
         // The payload is everything after the status/headers block; the
         // trailing CRLFs belong to the multipart framing, not the payload
-        const payload = responseParts.slice(2).join('\r\n\r\n').replace(/(?:\r\n)+$/, '');
+        const payload = responseParts
+            .slice(2)
+            .join('\r\n\r\n')
+            .replace(/(?:\r\n)+$/, '');
 
         const data = this.parseData(payload);
 
@@ -84,6 +219,7 @@ export class BatchResponse implements BatchResponseInterface {
             headers,
             data,
             success,
+            ...(contentId ? { contentId } : {}),
         };
     }
 
@@ -143,10 +279,22 @@ export class BatchResponse implements BatchResponseInterface {
         const normalizedBody = body.replace(/\r?\n/g, '\r\n');
 
         //Split the batch result into its associated parts
-        const batchParts = normalizedBody.split(RegExp('--' + escapeRegExp(this.boundary) + '(?:\r\n)?(?:--\r\n)?'));
+        const delimiter = '--' + this.boundary;
+        const batchParts = normalizedBody
+            .split(RegExp('--' + escapeRegExp(this.boundary) + '(?:\r\n)?(?:--\r\n)?'))
+            // Everything before the first delimiter is an RFC 2046 preamble,
+            // never a part. Dropping it structurally stops a preamble that
+            // happens to contain a header-looking line from being parsed as a
+            // response (the split yields the preamble as element 0).
+            .slice(normalizedBody.startsWith(delimiter) ? 0 : 1);
 
         const parseResponses = batchParts
-            .filter((batchPart: string) => RegExp('^content-type', 'i').test(batchPart))
+            // MIME headers may start with Content-ID, not just Content-Type.
+            // Keep unmatched boundary/preamble text from becoming a part.
+            .filter(
+                (batchPart: string) =>
+                    !batchPart.startsWith('--') && /^content-type:/im.test(batchPart.split('\r\n\r\n')[0])
+            )
             .flatMap((batchPart: string, changesetIndex: number) => {
                 // For each batch part, check to see if the part is a changeset.
                 const boundary = batchPart.match(RegExp('boundary=(.+)', 'm'));

@@ -16,8 +16,10 @@ npm install odata-batch
 
 ## Quick start
 
-Every entry in `calls` becomes one request inside the batch. Responses come
-back **in the same order as the calls**.
+Every entry in `calls` becomes one request inside the batch. Successful
+changesets return their child responses in order, but a failed changeset can
+collapse to one error for the whole transaction. Use `sendGrouped()` when you
+need to retain transaction identity rather than assuming one response per call.
 
 ```ts
 import { ODataBatch, Call, BatchResponseParsed } from 'odata-batch';
@@ -49,7 +51,9 @@ JavaScript works the same way: `const { ODataBatch } = require('odata-batch');`
 
 ## The response you get back
 
-`send()` resolves to `BatchResponseParsed[]` — one entry per call, in order:
+`send()` resolves to `BatchResponseParsed[]` — one entry per actual inner HTTP
+response, in wire order. It does not fabricate per-operation results when a
+changeset collapses to a single error:
 
 ```ts
 [
@@ -107,6 +111,87 @@ failures back to the transaction that produced them.
 A flat `Call[]` still produces a single changeset, with the exact same wire
 format as previous versions.
 
+### Grouped responses
+
+`sendGrouped(): Promise<BatchResponseGroup[]>` preserves one result per top-level
+request part. The default axios adapter uses the request layout captured when
+the batch was constructed, so a failed three-operation changeset followed by a
+successful two-operation changeset remains **two groups**, not five fake results
+or three ambiguously flattened results.
+
+| `kind` | Payload | Meaning |
+|---|---|---|
+| `changeset` | `responses: BatchResponseParsed[]` | A multipart changeset with its actual child responses, including Content-ID when returned. |
+| `changeset-error` | `error: BatchResponseParsed` | One top-level HTTP 4xx/5xx response for a whole changeset identified by request layout. |
+| `retrieve` | `response: BatchResponseParsed` | A contextual GET response, including a GET error; it is not a failed changeset. |
+| `unclassified` | `response: BatchResponseParsed` | A raw top-level HTTP response without request context; its changeset identity is unknown. |
+
+Every group has `partIndex`, the zero-based top-level part index. This index
+continues to identify later changesets after an earlier failure collapses.
+Nested HTTP errors remain child responses; their status alone does not imply
+a whole-changeset failure.
+
+```ts
+const groups = await batch.sendGrouped();
+for (const group of groups) {
+    if (group.kind === 'changeset-error') {
+        console.error('Transaction failed', group.partIndex, group.error);
+    } else if (group.kind === 'changeset') {
+        console.log('Transaction responses', group.partIndex, group.responses);
+    }
+}
+```
+
+For raw responses, the exported `BatchResponse` parser exposes
+`groupedResponse` (no request context) and
+`parseGrouped(layout?: BatchRequestLayout)`. Layout entries are
+`{ kind: 'retrieve' }` or `{ kind: 'changeset', operationCount: number }`.
+Without layout, multipart identity is retained but individual HTTP parts are
+`unclassified`; HTTP errors alone never establish changeset identity. Explicit
+mixed layouts are supported by the parser and repository, not by the batch
+request constructor yet.
+
+Grouped parsing rejects missing/unmatched closing boundaries, unsupported part
+types, invalid HTTP status lines, and layout count/type mismatches. Multipart
+changesets must have the declared number of children; a collapsed failure is
+represented by a top-level HTTP error, not invented child responses. The legacy
+flat parser and `send()` behavior are unchanged.
+
+Custom repositories may implement optional
+`sendGrouped(url, batchRequest, config, accept, layout)` returning
+`Promise<BatchResponseGroup[]>`. The existing required `send()` contract remains
+unchanged. If grouped support is missing, `ODataBatch.sendGrouped()` rejects
+with `Repository does not support grouped responses` **before transport**;
+there is no flat-result inference, retry, or second request. Choose either send
+method for one operation; calling both sends twice.
+
+### Content-ID and dependent operations
+
+Set optional `Call.contentId` to emit a **MIME** `Content-ID` header before the
+inner HTTP request. It is not an HTTP header in `Call.headers`.
+
+```ts
+const calls: Call[] = [
+    { method: 'POST', url: '/Items', data: { name: 'one' }, contentId: '1' },
+    { method: 'POST', url: '$1/Lines', data: { quantity: 2 }, contentId: '2' },
+];
+```
+
+Identifiers must be nonempty strings containing only HTTP token characters:
+letters, digits, and `` ! # $ % & ' * + - . ^ _ ` | ~ ``. Whitespace, CR/LF,
+control characters, and other characters are rejected before serialization.
+Values are case-sensitive and must be unique **within each changeset**; reuse
+across independent changesets is allowed. Omit the field (or pass `undefined`)
+to preserve the exact previous wire format. No identifiers are generated from
+URLs, and `$1/Lines` passes through unchanged; dependency semantics belong to
+the OData service.
+
+`BatchResponseParsed.contentId?: string` contains the server's nonempty MIME
+`Content-ID` value when present. Header names are matched case-insensitively
+regardless of MIME header order. Missing or empty IDs leave the property absent;
+the parser never infers an ID from inner HTTP headers or payloads. The existing
+`headers` array continues to contain only inner HTTP headers.
+
 ## Read-only batches (retrieve)
 
 OData V2 draws a hard line between the two batch flavors: retrieve
@@ -156,18 +241,96 @@ in order; `changesetIndex` is simply the part index here. Authentication,
 `Content-Type: multipart/mixed; boundary=batch_<boundary>` are identical to
 changeset mode.
 
+## Mixed batches (retrieve + changesets)
+
+OData V2 lets a single `$batch` interleave direct retrieve parts and atomic
+changesets. Pass `operations` — an array whose entries are either a
+`RetrieveCall` (a direct GET part) or a `Call[]` (one atomic changeset) — to
+control the exact order on the wire:
+
+```ts
+import { ODataBatch, Call } from 'odata-batch';
+
+const write: Call[] = [
+    { method: 'POST', url: 'https://my.server.sap/.../Candidates', data: { name: 'Ada' }, contentId: '1' },
+    { method: 'POST', url: 'https://my.server.sap/.../Candidates/$1/Notes', data: { text: 'hi' } },
+];
+
+const batch = new ODataBatch({
+    url: 'https://my.server.sap/sap/opu/odata/sap/API/$batch',
+    auth: 'user:password',
+    operations: [
+        { url: 'https://my.server.sap/.../Candidates/$count' }, // direct GET
+        write,                                                   // atomic changeset
+        { url: 'https://my.server.sap/.../Candidates' },         // direct GET
+    ],
+});
+
+const responses = await batch.send(); // flat, wire order
+const groups = await batch.sendGrouped(); // changeset-aware (see below)
+```
+
+Rules:
+
+- **`operations` XOR `calls` XOR `retrieve`.** Combining them throws
+  `Pass either operations or calls/retrieve, not both`; an empty `operations`
+  array throws `No calls have been passed`.
+- **Order is preserved.** Each entry keeps its position; a `RetrieveCall`
+  never gains changeset delimiters, a `Call[]` is always wrapped in one
+  changeset. Line breaks, `contentId` uniqueness per changeset, and the
+  boundary-collision reroll behave exactly as for `calls`.
+- **Empty changesets are rejected.** A `Call[]` entry with zero calls throws
+  `No calls have been passed`.
+
+`send()` returns the flat `BatchResponseParsed[]`; `sendGrouped()` (default
+Axios adapter) returns `BatchResponseGroup[]` aligned to the mixed layout, so
+a collapsed changeset failure keeps its identity instead of shifting later
+parts.
+
 ## Configuration
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `url` | `string` | — | The `$batch` endpoint. **Required.** |
 | `auth` | `string` | — | Basic-auth credential. See [Authentication](#authentication). **Required.** |
-| `calls` | `Call[] \| Call[][]` | — | Operations to send. Empty arrays are rejected. Mutually exclusive with `retrieve`. |
-| `retrieve` | `RetrieveCall[]` | — | Read-only mode: GETs sent as direct batch parts (no changeset). Mutually exclusive with `calls`. |
+| `calls` | `Call[] \| Call[][]` | — | Operations to send. Empty arrays are rejected. Mutually exclusive with `retrieve` and `operations`. |
+| `retrieve` | `RetrieveCall[]` | — | Read-only mode: GETs sent as direct batch parts (no changeset). Mutually exclusive with `calls` and `operations`. |
+| `operations` | `(RetrieveCall \| Call[])[]` | — | Ordered mixed mode: direct GET entries and atomic changesets interleaved in order. Mutually exclusive with `calls` and `retrieve`. |
 | `headers` | `Record<string, string>` | — | Extra headers for the batch request itself. `Authorization` from here overrides `auth`; `Accept` and `Content-Type` are always derived from the response-type options. |
-| `batchResponseType` | `'json' \| 'xml'` | `'json'` | How `data` of each call is serialized into the batch body. `json` uses `JSON.stringify`; `xml` writes the payload verbatim. |
-| `individualResponseType` | `'json' \| 'xml'` | `'json'` | How each inner response body is parsed. `json` runs `JSON.parse` (empty body → `null`, unparseable body → raw string); `xml` returns the raw string. Also sent as the batch `Accept` header. |
+| `batchResponseType` | `string` | `'json'` | JSON/XML alias or supported MIME type (see below). Controls call body serialization and inner `Content-Type`: JSON uses `JSON.stringify`; XML writes the payload verbatim. |
+| `individualResponseType` | `string` | `'json'` | JSON/XML alias or supported MIME type (see below). Controls inner response parsing and `Accept`: JSON runs `JSON.parse` (empty body → `null`, unparseable body → raw string); XML returns the raw string. |
 | *(2nd constructor arg)* | `ODataBatchRepository` | axios adapter | Custom HTTP transport. See [Custom HTTP adapter](#custom-http-adapter). |
+
+### JSON/XML media types
+
+Both options accept `json` and `xml`, or `application/json`, `application/xml`,
+`text/xml`, and `application/atom+xml`. Recognition is case-insensitive; aliases
+expand to `application/json` or `application/xml`, and MIME type names are
+lowercased. Defaults and legacy body serialization remain unchanged.
+
+MIME values can include parameters such as `application/json;odata=verbose`
+or `application/xml;charset=utf-8`. Parameter spelling, values, and internal
+spacing are preserved on the wire; surrounding spaces are trimmed. Parameter
+names and unquoted values must be HTTP tokens. Quoted values allow printable
+ASCII, including escaped quotes and semicolons. XML remains raw even with
+parameters, in both single and multiple changesets.
+
+```ts
+const batch = new ODataBatch({
+    url: '.../$batch',
+    auth: 'user:password',
+    calls: [{ method: 'POST', url: '.../Items', data: { id: 1 } }],
+    batchResponseType: 'application/json;odata=verbose',
+    individualResponseType: 'application/json;odata=verbose',
+});
+```
+
+Unsupported types, wildcards, media-type lists, malformed parameters, control
+characters (including tabs and CR/LF), and non-ASCII values throw at construction
+instead of silently selecting XML. Parameters require a MIME type, not an alias
+(`json;odata=verbose` is invalid). The outer request always remains
+`multipart/mixed`; retrieve mode uses only the normalized `Accept` on its GET
+parts, but validates both options.
 
 Each `Call` accepts:
 
@@ -177,6 +340,7 @@ Each `Call` accepts:
 | `url` | `string` | Request URL. Must not contain line breaks. |
 | `data` | `any` | Payload: serialized per `batchResponseType`. |
 | `headers` | `Record<string, string \| number>` | Optional. `Content-Type`/`Accept` here are overridden by the response-type options; every other header passes through verbatim. |
+| `contentId` | `string` | Optional MIME Content-ID; a nonempty HTTP token unique within its changeset. |
 
 Each `RetrieveCall` accepts:
 
@@ -213,6 +377,9 @@ before passing them. To bypass the heuristic entirely, set
 | `calls` missing, empty, or containing an empty changeset | `throw` at construction: `No calls have been passed` |
 | `calls` and `retrieve` both passed | `throw` at construction: `Pass either calls or retrieve, not both` |
 | Retrieve entry carrying `method` or `data` | `throw` at construction: `retrieve calls are GET-only: method and data are not allowed` |
+| Unsupported or malformed response-type option | `throw` at construction: `<option> must be a supported JSON or XML media type` |
+| Invalid explicit `contentId` | `throw` before sending: `Call contentId must be a nonempty HTTP token` |
+| Duplicate explicit `contentId` within a changeset | `throw` before sending: `Duplicate contentId within a changeset: <id>` |
 | Line breaks (`\r`/`\n`) in a call or retrieve url, method or header | `throw` before sending — blocks header injection into the MIME part |
 | Payload contains the generated changeset boundary | Boundary is regenerated (up to 10 attempts), then `throw` |
 | Batch endpoint answers non-2xx | Promise **rejects** (transport error; nothing is parsed) |

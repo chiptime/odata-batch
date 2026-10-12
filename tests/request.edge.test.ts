@@ -19,6 +19,89 @@ describe('requestsToBatch() edge cases', () => {
         jest.restoreAllMocks();
     });
 
+    describe('Content-ID wire compatibility and validation', () => {
+        test.each([false, true])('Content-ID adds exactly one MIME header with multi=%s', (multi) => {
+            makeRandomMock(42);
+            const call = { method: 'POST', url: '/Items', data: {}, contentId: '1' };
+            const cs = multi ? 'changeset_42_0' : 'changeset_42';
+            const expected = join([
+                '--batch_id',
+                `Content-Type: multipart/mixed; boundary=${cs}`,
+                '',
+                `--${cs}`,
+                'Content-Type: application/http',
+                'Content-Transfer-Encoding: binary',
+                'Content-ID: 1',
+                '',
+                'POST /Items HTTP/1.1',
+                'Content-Type: application/json',
+                'Accept: application/json',
+                '',
+                '{}',
+                '',
+                `--${cs}--`,
+                ...(multi ? [''] : []),
+                '--batch_id--',
+            ]);
+            expect(requestsToBatch(multi ? [[call]] : [call], 'id', JSON_OPTS)).toBe(expected);
+        });
+
+        test.each([
+            '',
+            ' ',
+            'one two',
+            '1\r\nX-Injected: yes',
+            '1\n',
+            '\r1',
+            '1\t2',
+            'a/b',
+            '<1>',
+            '"1"',
+            'a:b',
+            'ñ',
+            '1\u0000',
+            '1\u007f',
+            null,
+            1,
+        ])('rejects invalid Content-ID %j in both request shapes', (contentId) => {
+            const call = { method: 'POST', url: '/Items', data: {}, contentId } as any;
+            for (const calls of [[call], [[call]]]) {
+                expect(() => requestsToBatch(calls, 'id', JSON_OPTS)).toThrow(
+                    'Call contentId must be a nonempty HTTP token'
+                );
+            }
+        });
+
+        test.each([false, true])('rejects duplicate identifiers within a changeset with multi=%s', (multi) => {
+            const call = { method: 'POST', url: '/Items', data: {}, contentId: '1' };
+            const duplicate = [call, { ...call, url: '$1/Lines' }];
+            expect(() => requestsToBatch(multi ? [[call], duplicate] : duplicate, 'id', JSON_OPTS)).toThrow(
+                'Duplicate contentId within a changeset: 1'
+            );
+        });
+
+        test('allows reuse across changesets and treats identifier values as case-sensitive', () => {
+            makeRandomMock(42);
+            const call = { method: 'POST', url: '/Items', data: {}, contentId: 'Item' };
+            const result = requestsToBatch([[call, { ...call, contentId: 'item' }], [call]], 'id', JSON_OPTS);
+            expect(result.match(/^Content-ID: Item\r$/gm)).toHaveLength(2);
+            expect(result.match(/^Content-ID: item\r$/gm)).toHaveLength(1);
+        });
+
+        test.each([false, true])(
+            'undefined identifier preserves legacy bytes and custom HTTP headers with multi=%s',
+            (multi) => {
+                makeRandomMock(42);
+                const call = { method: 'POST', url: '/Items', data: {}, headers: { 'Content-ID': 'http-only' } };
+                const original = requestsToBatch(multi ? [[call]] : [call], 'id', JSON_OPTS);
+                const explicit = { ...call, contentId: undefined };
+                expect(requestsToBatch(multi ? [[explicit]] : [explicit], 'id', JSON_OPTS)).toBe(original);
+                expect(original).toContain('POST /Items HTTP/1.1\r\nContent-ID: http-only');
+                expect(original).not.toContain('binary\r\nContent-ID:');
+            }
+        );
+    });
+
     describe('legacy path is bit-identical (golden wire format)', () => {
         test('Call[] with two operations produces the exact v1.2.0 byte sequence', () => {
             // Arrange

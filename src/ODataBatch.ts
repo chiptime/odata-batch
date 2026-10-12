@@ -1,7 +1,40 @@
-import { requestsToBatch, retrieveToBatch, Call, RetrieveCall } from './request';
-import { BatchResponse, BatchResponseParsed } from './response';
-import { ODataBatchRepository } from './BatchRepository';
+import { requestsToBatch, retrieveToBatch, operationsToBatch, Call, RetrieveCall, BatchOperation } from './request';
+import { BatchResponse, BatchResponseParsed, BatchRequestLayout, BatchResponseGroup } from './response';
+import { ODataBatchRepository, BatchRequestConfig } from './BatchRepository';
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
+
+// Parameters are HTTP tokens or quoted printable ASCII, including quoted-pair
+// escapes. Validate the whole value before trimming so CR/LF cannot disappear.
+const MEDIA_TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+const MEDIA_QUOTED_VALUE = String.raw`"(?:[ !#-\[\]-~]|\\[ -~])*"`;
+const MEDIA_PARAMETER = `; *${MEDIA_TOKEN} *= *(?:${MEDIA_TOKEN}|${MEDIA_QUOTED_VALUE}) *`;
+const MEDIA_TYPE = new RegExp(
+    `^(application/json|application/xml|text/xml|application/atom\\+xml)( *(?:${MEDIA_PARAMETER})*)$`,
+    'i'
+);
+
+const normalizeMediaType = (value: string, option: string): string => {
+    const invalid = (): never => {
+        throw new Error(`${option} must be a supported JSON or XML media type`);
+    };
+
+    if (typeof value !== 'string' || /[^ -~]/.test(value)) {
+        return invalid();
+    }
+
+    const trimmed = value.trim();
+    const alias = trimmed.toLowerCase();
+    if (alias === 'json' || alias === 'xml') {
+        return `application/${alias}`;
+    }
+
+    const match = MEDIA_TYPE.exec(trimmed);
+    if (!match) {
+        return invalid();
+    }
+
+    return match[1].toLowerCase() + match[2];
+};
 
 export class ODataBatch {
     private auth: string;
@@ -14,6 +47,7 @@ export class ODataBatch {
         accept: string;
     };
     private batchRepository: ODataBatchRepository;
+    private requestLayout: BatchRequestLayout;
 
     constructor(
         {
@@ -22,6 +56,7 @@ export class ODataBatch {
             auth,
             calls,
             retrieve,
+            operations,
             batchResponseType = 'json',
             individualResponseType = 'json',
         }: {
@@ -30,12 +65,13 @@ export class ODataBatch {
             auth: string;
             calls?: Call[] | Call[][];
             retrieve?: RetrieveCall[];
+            operations?: BatchOperation[];
             batchResponseType?: string;
             individualResponseType?: string;
         },
         batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
-        this.ensureSingleMode(calls, retrieve);
+        this.ensureSingleMode(calls, retrieve, operations);
 
         this.boundary = new Date().getTime().toString();
 
@@ -45,37 +81,61 @@ export class ODataBatch {
         this.batchRepository = batchRepository;
 
         this.requestResponseType = {
-            contentType: batchResponseType === 'json' ? 'application/json' : 'application/xml',
-            accept: individualResponseType === 'json' ? 'application/json' : 'application/xml',
+            contentType: normalizeMediaType(batchResponseType, 'batchResponseType'),
+            accept: normalizeMediaType(individualResponseType, 'individualResponseType'),
         };
 
         if (retrieve) {
+            this.requestLayout = retrieve.map(() => ({ kind: 'retrieve' }));
             // Read-only batch: GETs become direct parts, no changeset wrapper
             this.batchRequest = retrieveToBatch(retrieve, this.boundary, { accept: this.requestResponseType.accept });
+        } else if (operations) {
+            // Ordered mixed batch: GET entries are direct parts, Call[] entries
+            // are atomic changesets, serialized in input order
+            this.requestLayout = operations.map((part) =>
+                Array.isArray(part) ? { kind: 'changeset', operationCount: part.length } : { kind: 'retrieve' }
+            );
+            this.batchRequest = operationsToBatch(operations, this.boundary, this.requestResponseType);
         } else {
             this.ensureHasCalls(calls);
+            const groups = Array.isArray(calls[0]) ? (calls as Call[][]) : [calls as Call[]];
+            this.requestLayout = groups.map((group) => ({ kind: 'changeset', operationCount: group.length }));
             this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
         }
     }
 
     public send(): Promise<BatchResponseParsed[]> {
-        const config = {
+        return this.batchRepository.send(
+            this.url,
+            this.batchRequest,
+            this.createRequestConfig(),
+            this.requestResponseType.accept,
+            BatchResponse
+        );
+    }
+
+    public async sendGrouped(): Promise<BatchResponseGroup[]> {
+        if (typeof this.batchRepository.sendGrouped !== 'function') {
+            throw new Error('Repository does not support grouped responses');
+        }
+        return this.batchRepository.sendGrouped(
+            this.url,
+            this.batchRequest,
+            this.createRequestConfig(),
+            this.requestResponseType.accept,
+            this.requestLayout
+        );
+    }
+
+    private createRequestConfig(): BatchRequestConfig {
+        return {
             headers: {
                 ...this.headers,
-
                 Authorization: this.headers?.Authorization || `Basic ${this.encodeBasicAuth(this.auth)}`,
                 Accept: this.requestResponseType.accept,
                 'Content-Type': 'multipart/mixed; boundary=batch_' + this.boundary,
             },
         };
-
-        return this.batchRepository.send(
-            this.url,
-            this.batchRequest,
-            config,
-            this.requestResponseType.accept,
-            BatchResponse
-        );
     }
 
     // RFC 7617: Basic credentials are base64(user-id:password). The standard
@@ -90,14 +150,27 @@ export class ODataBatch {
         return Buffer.from(auth, 'utf8').toString('base64');
     }
 
-    // changeset mode (calls) and retrieve mode are mutually exclusive:
-    // passing both is ambiguous, passing neither is a no-op
-    private ensureSingleMode(calls: Call[] | Call[][] | undefined, retrieve: RetrieveCall[] | undefined): void {
+    // changeset mode (calls), retrieve mode, and ordered mixed operations are
+    // mutually exclusive: passing more than one is ambiguous, passing none is
+    // a no-op handled by ensureHasCalls
+    private ensureSingleMode(
+        calls: Call[] | Call[][] | undefined,
+        retrieve: RetrieveCall[] | undefined,
+        operations: BatchOperation[] | undefined
+    ): void {
         if (calls && retrieve) {
             throw new Error('Pass either calls or retrieve, not both');
         }
 
+        if (operations && (calls || retrieve)) {
+            throw new Error('Pass either operations or calls/retrieve, not both');
+        }
+
         if (retrieve && retrieve.length <= 0) {
+            throw new Error('No calls have been passed');
+        }
+
+        if (operations && operations.length <= 0) {
             throw new Error('No calls have been passed');
         }
     }

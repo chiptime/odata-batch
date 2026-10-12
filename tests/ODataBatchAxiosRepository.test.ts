@@ -14,6 +14,50 @@ describe('ODataBatchAxiosRepository', () => {
         mock.restore();
     });
 
+    test('optional grouped capability accepts mixed layout and does not call flat send', async () => {
+        const repo = new ODataBatchAxiosRepository();
+        const flat = jest.spyOn(repo, 'send');
+        const body = [
+            '--response',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 404 Not Found',
+            '',
+            '{}',
+            '--response',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 400 Bad Request',
+            '',
+            '{}',
+            '--response--',
+        ].join('\r\n');
+        mock.onPost('http://example.com/batch').reply(200, body, {
+            'content-type': 'multipart/mixed; boundary=response',
+        });
+        const result = await (repo as any).sendGrouped(
+            'http://example.com/batch',
+            'request',
+            { headers: {} },
+            'application/json',
+            [{ kind: 'retrieve' }, { kind: 'changeset', operationCount: 3 }]
+        );
+        expect(result.map((g: any) => g.kind)).toEqual(['retrieve', 'changeset-error']);
+        expect(flat).not.toHaveBeenCalled();
+        expect(mock.history.post).toHaveLength(1);
+    });
+
+    test('grouped send preserves transport rejection without retries', async () => {
+        const repo = new ODataBatchAxiosRepository();
+        mock.onPost('http://example.com/batch').reply(500, 'failure');
+        await expect(
+            (repo as any).sendGrouped('http://example.com/batch', 'request', { headers: {} }, 'application/json', [
+                { kind: 'retrieve' },
+            ])
+        ).rejects.toThrow();
+        expect(mock.history.post).toHaveLength(1);
+    });
+
     describe('send()', () => {
         test('mocked POST returns parsed response', async () => {
             // Arrange

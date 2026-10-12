@@ -25,7 +25,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 ## Tasks
 - [x] T-00: Baseline and tracking
 - [x] T-01: Apply D1-D10 to the PRD
-- [ ] T-02: CSPRNG boundaries and outer collision check (FR-01, FR-08)
+- [x] T-02: CSPRNG boundaries and outer collision check (FR-01, FR-08)
 - [ ] T-03: CRLF validation for auth and root headers (FR-02, FR-03)
 - [ ] T-04: HTTP method token validation (FR-07)
 - [ ] T-05: Anchored delimiters and quoted changeset boundaries in parseBatch (FR-04, FR-06)
@@ -41,6 +41,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 - G-06: PASS (96.17% mutation score)
 
 ## T-01 Execution evidence
+- Commit: `a89d4f9`
 - Readback manual: Aprobado.
 - Reflejadas todas las decisiones D1–D10 en `docs/prds/security-hardening-prd.md`:
   - D1: Runtime `randomUUID` de `crypto`, sin requisito Node >= 18 ni `engines`.
@@ -59,8 +60,23 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - `src/response.ts:157, 191, 284, 300, 317, 335-349`
 - SHA-256 resultante de `docs/prds/security-hardening-prd.md`: `eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d`
 
+## T-02 Execution evidence
+- RED observado en `tests/boundary.test.ts`: 6 fallos de comportamiento en ejecución (falta de retorno `{ body, boundary }`, ausencia de detección de colisión exterior y mensaje `Unable to generate a batch boundary that does not collide with the payload`, persistencia de timestamp en `ODataBatch` y uso de `Math.random` en changesets).
+- Implementación GREEN:
+  - Creación de `src/boundary.ts` exportando `generateBoundaryId()` sobre `randomUUID()`.
+  - Actualización de `requestsToBatch` y `operationsToBatch` retornando `{ body, boundary }` con bucle de 10 reintentos ante colisión de boundary exterior y de changeset con el payload.
+  - Actualización de `ODataBatch` almacenando el boundary retornado para `Content-Type` y eliminando `new Date().getTime()`.
+  - Actualización de `tests/helpers.ts` para espiar `generateBoundaryId()` en `makeRandomMock` y `makeRandomSequenceMock`.
+- Gates observados:
+  - G-01: PASS (17 suites, 412 tests)
+  - G-03: PASS (`npm run lint`, 0 errores/warnings)
+  - G-04: PASS (`npm run format:check`, Prettier clean)
+  - G-05: PASS (`npm run build`, tsc exit 0)
+  - G-07: PASS (`git diff --exit-code main -- src/index.ts`, API pública intacta)
+  - G-09: PASS (`sh -c '! grep -rnE "Math\.random|new Date\(\)\.getTime" src/'`, exit 0, cero generadores débiles en `src/`)
+
 ## Resume bookmark
 - Pack identity: LAUNCH — odata-batch security hardening loop (launch text + PRD SHA-256: eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d)
-- Completed: T-00 (`856b063`), T-01 (commit pendiente)
-- Active task: T-02 — remediation rounds left: 2
-- Next action: T-02 RED tests for CSPRNG boundary generation and outer collision check (FR-01, FR-08)
+- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (commit pendiente)
+- Active task: T-03 — remediation rounds left: 2
+- Next action: T-03 RED tests for CRLF validation in auth and root headers (FR-02, FR-03)

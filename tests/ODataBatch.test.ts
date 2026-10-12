@@ -1,6 +1,7 @@
 import { ODataBatch } from '../src/ODataBatch';
 import { RetrieveCall } from '../src/request';
 import { ODataBatchAxiosRepository } from '../src/ODataBatchAxiosRepository';
+import * as boundaryModule from '../src/boundary';
 import { DummyBatchRepo } from './helpers';
 
 describe('ODataBatch', () => {
@@ -165,23 +166,23 @@ describe('ODataBatch', () => {
             expect(batch['batchRepository']).toBeInstanceOf(ODataBatchAxiosRepository);
         });
 
-        test('boundary equals current timestamp', () => {
+        test('boundary is generated via generateBoundaryId()', () => {
             // Arrange
             const config = {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
                 calls: [{ method: 'GET', url: '/items', data: null }],
             };
-            jest.useFakeTimers({ now: 1700000000123 });
+            const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('mock-uuid-boundary');
 
             try {
                 // Act
                 const batch = new ODataBatch(config);
 
                 // Assert
-                expect(batch['boundary']).toBe('1700000000123');
+                expect(batch['boundary']).toBe('mock-uuid-boundary');
             } finally {
-                jest.useRealTimers();
+                spy.mockRestore();
             }
         });
     });
@@ -190,7 +191,11 @@ describe('ODataBatch', () => {
         test.each([false, true])(
             'parameterized XML stays raw with multi-changeset=%s and boundary collision',
             async (multi) => {
-                const random = jest.spyOn(Math, 'random').mockReturnValueOnce(0.25).mockReturnValue(0.5);
+                const boundarySpy = jest
+                    .spyOn(boundaryModule, 'generateBoundaryId')
+                    .mockReturnValueOnce('batch-outer')
+                    .mockReturnValueOnce('25')
+                    .mockReturnValue('50');
                 const repo = new DummyBatchRepo();
                 const data = '<item>\r\n--changeset_25\r\n</item>';
                 const call = { method: 'POST', url: '/items', data };
@@ -207,12 +212,12 @@ describe('ODataBatch', () => {
                     );
                     await batch.send();
 
-                    expect(random).toHaveBeenCalledTimes(2);
+                    expect(boundarySpy).toHaveBeenCalledTimes(3);
                     expect(repo.lastRequest).toContain('boundary=changeset_50');
                     expect(repo.lastRequest.split(`\r\n\r\n${data}\r\n`)).toHaveLength(multi ? 3 : 2);
                     expect(repo.lastRequest).not.toContain(JSON.stringify(data));
                 } finally {
-                    random.mockRestore();
+                    boundarySpy.mockRestore();
                 }
             }
         );

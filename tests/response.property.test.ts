@@ -179,7 +179,7 @@ describe('BatchResponse properties (seeded random inputs)', () => {
 
                 // Round-trip with requestsToBatch: the request fixes the batch
                 // and changeset boundaries, and the mirrored response reuses them
-                const request = requestsToBatch(multi, boundary, JSON_OPTS);
+                const request = requestsToBatch(multi, boundary, JSON_OPTS).body;
                 const batchBoundary = 'batch_' + boundary;
                 const changeSetBoundaries = Array.from(request.matchAll(/boundary=(changeset_[0-9.]+_\d+)\r/g)).map(
                     (m) => m[1]

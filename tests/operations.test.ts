@@ -6,11 +6,13 @@ import { DummyBatchRepo, makeRandomMock, makeRandomSequenceMock } from './helper
 
 // T4 API under construction: resolved dynamically so the suite runs and fails
 // on the missing behavior (not on a compile error), then passes once exported.
-const operationsToBatch = (request as { operationsToBatch?: (...args: any[]) => string }).operationsToBatch as (
+const operationsToBatch = (
     operations: (RetrieveCall | Call[])[],
     boundary: string,
     options: { contentType?: string; accept?: string }
-) => string;
+): string => {
+    return (request.operationsToBatch as any)(operations, boundary, options).body;
+};
 
 /**
  * T4: ordered mixed batches. A single $batch request may interleave direct

@@ -1,4 +1,5 @@
 import { requestsToBatch, retrieveToBatch, operationsToBatch, Call, RetrieveCall, BatchOperation } from './request';
+import { generateBoundaryId } from './boundary';
 import { BatchResponse, BatchResponseParsed, BatchRequestLayout, BatchResponseGroup } from './response';
 import { ODataBatchRepository, BatchRequestConfig } from './BatchRepository';
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
@@ -73,8 +74,6 @@ export class ODataBatch {
     ) {
         this.ensureSingleMode(calls, retrieve, operations);
 
-        this.boundary = new Date().getTime().toString();
-
         this.headers = headers;
         this.auth = auth;
         this.url = url;
@@ -88,6 +87,7 @@ export class ODataBatch {
         if (retrieve) {
             this.requestLayout = retrieve.map(() => ({ kind: 'retrieve' }));
             // Read-only batch: GETs become direct parts, no changeset wrapper
+            this.boundary = generateBoundaryId();
             this.batchRequest = retrieveToBatch(retrieve, this.boundary, { accept: this.requestResponseType.accept });
         } else if (operations) {
             // Ordered mixed batch: GET entries are direct parts, Call[] entries
@@ -95,12 +95,16 @@ export class ODataBatch {
             this.requestLayout = operations.map((part) =>
                 Array.isArray(part) ? { kind: 'changeset', operationCount: part.length } : { kind: 'retrieve' }
             );
-            this.batchRequest = operationsToBatch(operations, this.boundary, this.requestResponseType);
+            const { body, boundary } = operationsToBatch(operations, this.requestResponseType);
+            this.boundary = boundary;
+            this.batchRequest = body;
         } else {
             this.ensureHasCalls(calls);
             const groups = Array.isArray(calls[0]) ? (calls as Call[][]) : [calls as Call[]];
             this.requestLayout = groups.map((group) => ({ kind: 'changeset', operationCount: group.length }));
-            this.batchRequest = requestsToBatch(calls, this.boundary, this.requestResponseType);
+            const { body, boundary } = requestsToBatch(calls, this.requestResponseType);
+            this.boundary = boundary;
+            this.batchRequest = body;
         }
     }
 

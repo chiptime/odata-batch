@@ -1,5 +1,8 @@
-import { requestsToBatch, Call } from '../src/request';
+import * as requestModule from '../src/request';
+import { Call } from '../src/request';
 import { makeRandomMock } from './helpers';
+
+const requestsToBatch = (...args: any[]): any => (requestModule.requestsToBatch as any)(...args).body;
 
 /**
  * Edge-case coverage for requestsToBatch():

@@ -30,8 +30,8 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 - [x] T-04: HTTP method token validation (FR-07)
 - [x] T-05: Anchored delimiters and quoted changeset boundaries in parseBatch (FR-04, FR-06)
 - [x] T-06: Resilient malformed parts in parseResponse (FR-05)
-- [ ] T-07: CHANGELOG and README
-- [ ] T-08: Final verification
+- [x] T-07: CHANGELOG and README
+- [x] T-08: Final verification
 
 ## T-00 Execution evidence
 - Commit: `856b063`
@@ -119,7 +119,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, exit 0)
 
 ## T-06 Execution evidence
-- Commit: pending
+- Commit: `d24acac`
 - RED observado en `tests/malformed-part.test.ts`: 2 fallos (`TypeError: Cannot read properties of undefined (reading 'split')` en `responseParts[1]` ante partes truncadas sin doble salto de línea).
 - Implementación GREEN:
   - Añadida guarda en `parseResponse(part)` comprobando `if (responseParts.length < 2)`.
@@ -132,8 +132,32 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-05: PASS (`npm run build`, exit 0)
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, API pública intacta)
 
+## T-07 Execution evidence
+- Commit: `11c8de3`
+- Readback manual: Aprobado. Reflejadas las 8 FRs en la sección `[Unreleased]` de `CHANGELOG.md` con subsección "Behavior changes" y "Security". Actualizadas tablas en `README.md` (`auth`, `headers`, `Call.method`, y resumen de validaciones y errores).
+- Gate G-04: PASS (`npm run format:check`, Prettier clean)
+
+## T-08 Execution evidence
+- Remediation Round 1 (autorizada por el usuario para `tests/**` y `src/**`):
+  - Commit de remediación: `f70d80d`
+  - G-02 resuelto: Se cubrieron las 4 ramas pendientes de `operationsToBatch` y `requestsToBatch` invocadas con parámetros por defecto/opcionales en `tests/request.edge.test.ts` y `tests/operations.test.ts`. Cobertura global alcanzada: 100% líneas, 100% ramas, 100% sentencias, 100% funciones.
+  - G-06 resuelto: Se añadieron tests de caracterización estricta (10 intentos de colisión exterior y de changeset con verificación de llamadas a `generateBoundaryId()`, `trim()` en normalización de `mediaType`, soporte de delimitador `boundary=` sin prefijo de punto y coma, stripping exacto de CRLF al final de partes malformadas en `src/response.ts:209`, filtrado de preámbulo y partes en blanco de changesets). Puntuación de mutación alcanzada: **97.19%** (superando la línea base T-00 de 96.17%).
+- Gates observados en el árbol final tras remediación:
+  - G-01 (`npm test -- --runInBand`): PASS (21 suites, 475 tests pasados, exit 0)
+  - G-02 (`npx jest --runInBand --coverage --coverageThreshold='{"global":{"lines":100,"branches":100}}'`): PASS (100% líneas, 100% ramas, 100% sentencias, 100% funciones, 0 líneas no cubiertas, exit 0)
+  - G-03 (`npm run lint`): PASS (0 errores, 0 warnings, exit 0)
+  - G-04 (`npm run format:check`): PASS (Prettier clean en todo el árbol, exit 0)
+  - G-05 (`npm run build`): PASS (tsc exit 0)
+  - G-06 (`npm run mutation`): PASS (97.19% vs 96.17% baseline T-00; 952 killed, 16 timeout, 28 survived, 0 no cov, 0 errors, exit 0)
+  - G-07 (`git diff --exit-code main -- src/index.ts`): PASS (API pública intacta, exit 0)
+  - G-08 (`node -e "const d=Object.keys(require('./package.json').dependencies);process.exit(d.length===1&&d[0]==='axios'?0:1)"`): PASS (solo axios, exit 0)
+  - G-09 (`sh -c '! grep -rnE "Math\.random|new Date\(\)\.getTime" src/'`): PASS (sin fuentes débiles de números aleatorios/timestamps, exit 0)
+- Comprobaciones manuales pendientes para el humano:
+  - M-01: `npm audit --omit=dev` sin hallazgos de severidad alta (requiere acceso a red).
+  - M-02: Peer review del diff completo contra `main` para compatibilidad de API pública.
+
 ## Resume bookmark
 - Pack identity: LAUNCH — odata-batch security hardening loop (launch text + PRD SHA-256: eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d)
-- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`), T-03 (`fb5650d`), T-04 (`78656e2`), T-05 (`99f7309`)
-- Active task: T-06 — remediation rounds left: 2
-- Next action: commit T-06
+- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`), T-03 (`fb5650d`), T-04 (`78656e2`), T-05 (`99f7309`), T-06 (`d24acac`), T-07 (`11c8de3`), T-08 (`f70d80d`)
+- Active task: Ninguna (bucle completado con éxito — tareas T-00 a T-08 cerradas)
+- Next action: Comprobaciones manuales M-01 (`npm audit --omit=dev`) y M-02 (peer review) por el usuario humano.

@@ -42,7 +42,7 @@ describe('FR-01 & FR-08: CSPRNG boundary generation and collision guards', () =>
     });
 
     test('FR-01: requestsToBatch throws when outer batch boundary collides persistently (10 attempts)', () => {
-        jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('persistent-batch-collision');
+        const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('persistent-batch-collision');
 
         const calls: Call[] = [
             { method: 'POST', url: '/items', headers: {}, data: { text: '--batch_persistent-batch-collision' } },
@@ -51,6 +51,23 @@ describe('FR-01 & FR-08: CSPRNG boundary generation and collision guards', () =>
         expect(() =>
             (requestsToBatch as any)(calls, { contentType: 'application/json', accept: 'application/json' })
         ).toThrow('Unable to generate a batch boundary that does not collide with the payload');
+        expect(spy).toHaveBeenCalledTimes(10);
+    });
+
+    test('FR-01: requestsToBatch throws when changeset boundary collides persistently (10 attempts)', () => {
+        const spy = jest
+            .spyOn(boundaryModule, 'generateBoundaryId')
+            .mockReturnValueOnce('clean-batch')
+            .mockReturnValue('persistent-cs-collision');
+
+        const calls: Call[] = [
+            { method: 'POST', url: '/items', headers: {}, data: { text: '--changeset_persistent-cs-collision' } },
+        ];
+
+        expect(() =>
+            (requestsToBatch as any)(calls, { contentType: 'application/json', accept: 'application/json' })
+        ).toThrow('Unable to generate a changeset boundary that does not collide with the payload');
+        expect(spy).toHaveBeenCalledTimes(11);
     });
 
     test('FR-01: operationsToBatch returns { body, boundary } and rerolls on outer boundary collision', () => {
@@ -73,7 +90,7 @@ describe('FR-01 & FR-08: CSPRNG boundary generation and collision guards', () =>
     });
 
     test('FR-01: operationsToBatch throws when outer batch boundary collides persistently', () => {
-        jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('persistent-op-collision');
+        const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('persistent-op-collision');
 
         const ops: (RetrieveCall | Call[])[] = [
             [{ method: 'POST', url: '/items', headers: {}, data: { text: '--batch_persistent-op-collision' } }],
@@ -82,6 +99,23 @@ describe('FR-01 & FR-08: CSPRNG boundary generation and collision guards', () =>
         expect(() => operationsToBatch(ops, { contentType: 'application/json', accept: 'application/json' })).toThrow(
             'Unable to generate a batch boundary that does not collide with the payload'
         );
+        expect(spy).toHaveBeenCalledTimes(10);
+    });
+
+    test('FR-01: operationsToBatch throws when changeset boundary collides persistently (10 attempts)', () => {
+        const spy = jest
+            .spyOn(boundaryModule, 'generateBoundaryId')
+            .mockReturnValueOnce('clean-op-batch')
+            .mockReturnValue('persistent-op-cs-collision');
+
+        const ops: (RetrieveCall | Call[])[] = [
+            [{ method: 'POST', url: '/items', headers: {}, data: { text: '--changeset_persistent-op-cs-collision' } }],
+        ];
+
+        expect(() => operationsToBatch(ops, { contentType: 'application/json', accept: 'application/json' })).toThrow(
+            'Unable to generate a changeset boundary that does not collide with the payload'
+        );
+        expect(spy).toHaveBeenCalledTimes(11);
     });
 
     test('FR-01: ODataBatch stores the rerolled boundary for Content-Type', async () => {

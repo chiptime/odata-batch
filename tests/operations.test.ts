@@ -287,7 +287,7 @@ describe('ODataBatch mixed operations mode', () => {
                         { url: 'http://x/batch', auth: 'user:pass', operations } as any,
                         new DummyBatchRepo()
                     )
-            ).toThrow();
+            ).toThrow('No calls have been passed');
         }
     );
 
@@ -463,22 +463,25 @@ describe('operationsToBatch() byte-exact wire and branch coverage', () => {
         }
     });
 
-    test.each([['text/xml'], ['application/atom+xml'], ['application/xml;charset=utf-8'], ['TEXT/XML']])(
-        'serializes %s changeset bodies verbatim, never as JSON',
-        (contentType) => {
-            const restore = makeRandomMock(1);
-            try {
-                const result = operationsToBatch([[{ method: 'POST', url: '/b', data: '<entry/>' }]], '884', {
-                    contentType,
-                    accept: contentType,
-                });
-                expect(result).toContain('\r\n\r\n<entry/>\r\n');
-                expect(result).not.toContain('"<entry/>"');
-            } finally {
-                restore();
-            }
+    test.each([
+        ['text/xml'],
+        ['application/atom+xml'],
+        ['application/xml;charset=utf-8'],
+        ['TEXT/XML'],
+        ['  application/xml ; charset=utf-8 '],
+    ])('serializes %s changeset bodies verbatim, never as JSON', (contentType) => {
+        const restore = makeRandomMock(1);
+        try {
+            const result = operationsToBatch([[{ method: 'POST', url: '/b', data: '<entry/>' }]], '884', {
+                contentType,
+                accept: contentType,
+            });
+            expect(result).toContain('\r\n\r\n<entry/>\r\n');
+            expect(result).not.toContain('"<entry/>"');
+        } finally {
+            restore();
         }
-    );
+    });
 
     test('serializes JSON changeset bodies with JSON.stringify even with parameters', () => {
         const restore = makeRandomMock(1);
@@ -488,6 +491,28 @@ describe('operationsToBatch() byte-exact wire and branch coverage', () => {
                 accept: 'application/json',
             });
             expect(result).toContain('\r\n\r\n{"a":1}\r\n');
+        } finally {
+            restore();
+        }
+    });
+
+    test('operationsToBatch without options generates random boundary and default options', () => {
+        const restore = makeRandomMock(1);
+        try {
+            const result = (request.operationsToBatch as any)([[{ method: 'POST', url: '/b', data: {} }]]);
+            expect(result.boundary).toBeDefined();
+            expect(result.body).toContain('POST /b HTTP/1.1');
+        } finally {
+            restore();
+        }
+    });
+
+    test('operationsToBatch with string boundary but without options uses defaults', () => {
+        const restore = makeRandomMock(1);
+        try {
+            const result = (request.operationsToBatch as any)([[{ method: 'POST', url: '/b', data: {} }]], '884');
+            expect(result.boundary).toBe('884');
+            expect(result.body).toContain('POST /b HTTP/1.1');
         } finally {
             restore();
         }

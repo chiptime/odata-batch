@@ -57,4 +57,16 @@ describe('FR-05: Resilient malformed parts in parseResponse', () => {
             changesetIndex: 1,
         });
     });
+
+    test('strips only trailing CRLF from malformed part preserving internal line breaks', () => {
+        const boundary = 'batch_12345';
+        const rawPartText = 'Content-Type: application/http\r\nX-Malformed: line2';
+        const responseData = [`--${boundary}`, rawPartText, `--${boundary}--`].join('\r\n');
+
+        const headers = { 'content-type': `multipart/mixed; boundary=${boundary}` };
+        const response = new BatchResponse({ data: responseData, headers }, 'application/json');
+
+        expect(response.response).toHaveLength(1);
+        expect(response.response[0].data).toBe(rawPartText);
+    });
 });

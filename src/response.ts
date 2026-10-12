@@ -206,7 +206,7 @@ export class BatchResponse implements BatchResponseInterface {
                 code: '',
                 status: '',
                 headers: [],
-                data: part.replace(/(?:\r\n)+$/, ''),
+                data: part.replace(/\r\n$/, ''),
                 success: false,
             };
         }

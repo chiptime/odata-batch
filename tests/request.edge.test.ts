@@ -232,6 +232,17 @@ describe('requestsToBatch() edge cases', () => {
             expect(result).not.toContain('"<item/>"');
         });
 
+        test('multi path trims contentType mediaType when determining XML mode', () => {
+            makeRandomMock(42);
+            const calls: Call[][] = [[{ method: 'POST', url: '/api/x', headers: undefined, data: '<item/>' }]];
+            const result = requestsToBatch(calls, '884', {
+                contentType: '  application/xml ; charset=utf-8 ',
+                accept: 'application/xml',
+            });
+            expect(result).toContain('\r\n<item/>\r\n');
+            expect(result).not.toContain('"<item/>"');
+        });
+
         test('multi path with an empty sub-array emits an operation-less changeset section', () => {
             // Arrange
             makeRandomMock(42);
@@ -345,6 +356,24 @@ describe('requestsToBatch() edge cases', () => {
 
         test('Call[] whose first entry is null throws TypeError on the legacy path', () => {
             expect(() => requestsToBatch([null] as any, '884', JSON_OPTS)).toThrow(TypeError);
+        });
+    });
+
+    describe('requestsToBatch options parameter branches', () => {
+        test('requestsToBatch without options generates random boundary and default options', () => {
+            makeRandomMock(42);
+            const calls: Call[] = [{ method: 'GET', url: '/api/a', data: null }];
+            const result = (requestModule.requestsToBatch as any)(calls);
+            expect(result.boundary).toBeDefined();
+            expect(result.body).toContain('GET /api/a HTTP/1.1');
+        });
+
+        test('requestsToBatch with string boundary but without options uses defaults', () => {
+            makeRandomMock(42);
+            const calls: Call[] = [{ method: 'GET', url: '/api/a', data: null }];
+            const result = (requestModule.requestsToBatch as any)(calls, '884');
+            expect(result.boundary).toBe('884');
+            expect(result.body).toContain('GET /api/a HTTP/1.1');
         });
     });
 });

@@ -847,4 +847,54 @@ describe('MIME preamble before the first boundary', () => {
         expect(response.response).toHaveLength(1);
         expect((response.response[0] as { contentId?: string }).contentId).toBe('1');
     });
+
+    test('ignores non-part segment with X-Content-Type header and preamble starting with --', () => {
+        const body = wire(
+            '--batch_884',
+            '--preamble text not ending with dash',
+            '--batch_884',
+            'X-Content-Type: application/http',
+            '',
+            'HTTP/1.1 200 OK',
+            '',
+            '',
+            '--batch_884',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 200 OK',
+            'Content-Type: application/json',
+            '',
+            '{"id":100}',
+            '',
+            '--batch_884--'
+        );
+
+        const response = parse(body);
+
+        expect(response.response).toHaveLength(1);
+        expect(response.response[0].data).toEqual({ id: 100 });
+    });
+
+    test('filters out whitespace-only segments in changeset parts', () => {
+        const body = wire(
+            '--batch_884',
+            'Content-Type: multipart/mixed; boundary=changeset_1',
+            '',
+            '--changeset_1',
+            '   \t  ',
+            '--changeset_1',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 204 No Content',
+            '',
+            '',
+            '--changeset_1--',
+            '--batch_884--'
+        );
+
+        const response = parse(body);
+
+        expect(response.response).toHaveLength(1);
+        expect(response.response[0].code).toBe('204');
+    });
 });

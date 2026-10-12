@@ -159,7 +159,7 @@ describe('BatchResponse wire-format parsing', () => {
             const request = requestsToBatch(calls, '884', {
                 contentType: 'application/json',
                 accept: 'application/json',
-            });
+            }).body;
 
             const boundaries = Array.from(request.matchAll(/boundary=(changeset_42_\d)/g)).map((m) => m[1]);
             expect(boundaries).toEqual(['changeset_42_0', 'changeset_42_1']);
@@ -314,13 +314,22 @@ describe('BatchResponse wire-format parsing', () => {
             expect(response.response[0].data).toEqual({ id: 1 });
         });
 
-        test('part with content-type but no response block throws TypeError', () => {
+        test('part with content-type but no response block yields resilient malformed part without TypeError', () => {
             // Arrange - truncated part: passes the content-type filter, but has no
             // \r\n\r\n-separated response block, so responseParts[1] is undefined
             const body = wire('--batch_884', 'Content-Type: application/http', '--batch_884--');
 
-            // Act & Assert - characterization of current behavior
-            expect(() => parse(body)).toThrow(TypeError);
+            // Act & Assert - resilient handling per FR-05
+            const response = parse(body);
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toEqual({
+                code: '',
+                status: '',
+                headers: [],
+                data: 'Content-Type: application/http',
+                success: false,
+                changesetIndex: 0,
+            });
         });
 
         test('response block without an HTTP status line yields empty code/status and success=false', () => {
@@ -837,5 +846,55 @@ describe('MIME preamble before the first boundary', () => {
 
         expect(response.response).toHaveLength(1);
         expect((response.response[0] as { contentId?: string }).contentId).toBe('1');
+    });
+
+    test('ignores non-part segment with X-Content-Type header and preamble starting with --', () => {
+        const body = wire(
+            '--batch_884',
+            '--preamble text not ending with dash',
+            '--batch_884',
+            'X-Content-Type: application/http',
+            '',
+            'HTTP/1.1 200 OK',
+            '',
+            '',
+            '--batch_884',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 200 OK',
+            'Content-Type: application/json',
+            '',
+            '{"id":100}',
+            '',
+            '--batch_884--'
+        );
+
+        const response = parse(body);
+
+        expect(response.response).toHaveLength(1);
+        expect(response.response[0].data).toEqual({ id: 100 });
+    });
+
+    test('filters out whitespace-only segments in changeset parts', () => {
+        const body = wire(
+            '--batch_884',
+            'Content-Type: multipart/mixed; boundary=changeset_1',
+            '',
+            '--changeset_1',
+            '   \t  ',
+            '--changeset_1',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 204 No Content',
+            '',
+            '',
+            '--changeset_1--',
+            '--batch_884--'
+        );
+
+        const response = parse(body);
+
+        expect(response.response).toHaveLength(1);
+        expect(response.response[0].code).toBe('204');
     });
 });

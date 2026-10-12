@@ -1,5 +1,6 @@
 import { ODataBatchRepository } from '../src/BatchRepository';
 import { BatchResponseConstructor } from '../src/response';
+import * as boundaryModule from '../src/boundary';
 
 /**
  * Dummy repository for ODataBatch unit tests.
@@ -40,27 +41,34 @@ export class DummyBatchRepo implements ODataBatchRepository {
 }
 
 /**
- * Mock helper for deterministic Math.random in tests.
+ * Mock helper for deterministic Math.random and boundary generation in tests.
  * Returns a function that restores the original when called.
  */
 export function makeRandomMock(value: number): () => void {
     const original = Math.random;
     Math.random = jest.fn(() => value / 100);
+    const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue(String(value));
     return () => {
         Math.random = original;
+        spy.mockRestore();
     };
 }
 
 /**
- * Mock helper for a deterministic SEQUENCE of Math.random values (each as a
- * percentage, matching makeRandomMock). The last value repeats if exhausted.
+ * Mock helper for a deterministic SEQUENCE of Math.random and boundary values.
+ * The last value repeats if exhausted.
  */
 export function makeRandomSequenceMock(values: number[]): () => void {
     const original = Math.random;
     let i = 0;
     Math.random = jest.fn(() => values[Math.min(i++, values.length - 1)] / 100);
+    let j = 0;
+    const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockImplementation(() => {
+        return String(values[Math.min(j++, values.length - 1)]);
+    });
     return () => {
         Math.random = original;
+        spy.mockRestore();
     };
 }
 

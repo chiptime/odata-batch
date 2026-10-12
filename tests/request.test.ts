@@ -1,5 +1,7 @@
-import { requestsToBatch } from '../src/request';
+import * as requestModule from '../src/request';
 import { makeRandomMock } from './helpers';
+
+const requestsToBatch = (...args: any[]): any => (requestModule.requestsToBatch as any)(...args).body;
 
 describe('requestsToBatch()', () => {
     describe('optional MIME Content-ID', () => {

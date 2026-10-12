@@ -1,4 +1,15 @@
 import { flatten } from './utils';
+import { generateBoundaryId } from './boundary';
+
+export interface SerializedBatch {
+    body: string;
+    boundary: string;
+}
+
+export interface BatchRequestOptions {
+    contentType?: string;
+    accept?: string;
+}
 
 export interface Call {
     method: string;
@@ -24,6 +35,14 @@ const ensureNoLineBreak = (label: string, value: string): void => {
     }
 };
 
+const HTTP_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+const ensureMethodIsSafe = (method: string): void => {
+    if (typeof method !== 'string' || !HTTP_TOKEN.test(method)) {
+        throw new Error('Call method must be a valid HTTP token');
+    }
+};
+
 const ensureHeadersAreSafe = (headers?: Record<string, string | number>): void => {
     if (!headers) {
         return;
@@ -38,7 +57,7 @@ const ensureHeadersAreSafe = (headers?: Record<string, string | number>): void =
 
 const ensureCallIsSafe = (call: Call): void => {
     ensureNoLineBreak('url', call.url);
-    ensureNoLineBreak('method', call.method);
+    ensureMethodIsSafe(call.method);
     ensureHeadersAreSafe(call.headers);
 };
 
@@ -135,12 +154,25 @@ const retrievePartHeaders = (headers: Record<string, string | number> | undefine
 // injection/contentId guards and the boundary-collision reroll.
 export const operationsToBatch = function (
     operations: BatchOperation[],
-    boundary: string,
-    { contentType, accept }: { contentType?: string; accept?: string }
-): string {
+    boundaryOrOptions?: string | BatchRequestOptions,
+    maybeOptions?: BatchRequestOptions
+): SerializedBatch {
     if (!Array.isArray(operations) || operations.length <= 0) {
         throw new Error('No calls have been passed');
     }
+
+    let initialBoundary: string | undefined;
+    let options: BatchRequestOptions;
+
+    if (typeof boundaryOrOptions === 'string') {
+        initialBoundary = boundaryOrOptions;
+        options = maybeOptions || {};
+    } else {
+        initialBoundary = undefined;
+        options = boundaryOrOptions || {};
+    }
+
+    const { contentType, accept } = options;
 
     operations.forEach((part) => {
         if (!isChangesetPart(part) && (part === null || typeof part !== 'object')) {
@@ -160,26 +192,38 @@ export const operationsToBatch = function (
         ensureContentIdsAreSafe(calls);
     });
 
-    let changeSetNum = Math.random() * 100;
     const isXml = isXmlMediaType(contentType);
     const serializeBody = (call: Call): string => (isXml ? String(call.data) : JSON.stringify(call.data));
     const serializedBodies = changesets.flat().map(serializeBody);
 
+    let batchBoundary = initialBoundary || generateBoundaryId();
     for (
         let attempts = 0;
-        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--changeset_${changeSetNum}`));
+        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--batch_${batchBoundary}`));
+        attempts++
+    ) {
+        if (attempts >= 9) {
+            throw new Error('Unable to generate a batch boundary that does not collide with the payload');
+        }
+        batchBoundary = generateBoundaryId();
+    }
+
+    let changeSetId = generateBoundaryId();
+    for (
+        let attempts = 0;
+        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--changeset_${changeSetId}`));
         attempts++
     ) {
         if (attempts >= 9) {
             throw new Error('Unable to generate a changeset boundary that does not collide with the payload');
         }
-        changeSetNum = Math.random() * 100;
+        changeSetId = generateBoundaryId();
     }
 
     let changesetIndex = 0;
     const parts = operations.map((operation) => {
         if (isChangesetPart(operation)) {
-            const csBoundary = `changeset_${changeSetNum}_${changesetIndex++}`;
+            const csBoundary = `changeset_${changeSetId}_${changesetIndex++}`;
 
             const inner = operation.map((call) =>
                 flatten([
@@ -198,7 +242,7 @@ export const operationsToBatch = function (
             );
 
             return flatten([
-                `--batch_${boundary}`,
+                `--batch_${batchBoundary}`,
                 `Content-Type: multipart/mixed; boundary=${csBoundary}`,
                 '',
                 flatten(inner),
@@ -210,7 +254,7 @@ export const operationsToBatch = function (
         const retrieve = operation as RetrieveCall;
 
         return flatten([
-            `--batch_${boundary}`,
+            `--batch_${batchBoundary}`,
             'Content-Type: application/http',
             'Content-Transfer-Encoding: binary',
             '',
@@ -222,15 +266,29 @@ export const operationsToBatch = function (
         ]);
     });
 
-    return flatten(parts).concat(`--batch_${boundary}--`).join('\r\n');
+    return {
+        body: flatten(parts).concat(`--batch_${batchBoundary}--`).join('\r\n'),
+        boundary: batchBoundary,
+    };
 };
 
 export const requestsToBatch = function (
     data: Call[] | Call[][],
-    boundary: string,
-    { contentType, accept }: { contentType?: string; accept?: string }
-): string {
-    let changeSetNum = Math.random() * 100;
+    boundaryOrOptions?: string | BatchRequestOptions,
+    maybeOptions?: BatchRequestOptions
+): SerializedBatch {
+    let initialBoundary: string | undefined;
+    let options: BatchRequestOptions;
+
+    if (typeof boundaryOrOptions === 'string') {
+        initialBoundary = boundaryOrOptions;
+        options = maybeOptions || {};
+    } else {
+        initialBoundary = undefined;
+        options = boundaryOrOptions || {};
+    }
+
+    const { contentType, accept } = options;
     const mediaType = contentType?.split(';')[0].trim().toLowerCase();
     const isXml = mediaType === 'application/xml' || mediaType === 'text/xml' || mediaType === 'application/atom+xml';
 
@@ -265,20 +323,33 @@ export const requestsToBatch = function (
     groups.forEach(ensureContentIdsAreSafe);
 
     // Boundary-collision guard: if a serialized payload already contains the
-    // changeset delimiter, the server would cut the changeset early - reroll
-    // the boundary until the wire is unambiguous
+    // batch or changeset delimiter, the server would cut the message early -
+    // reroll the boundary until the wire is unambiguous
     const serializeBody = (call: Call): string => (isXml ? String(call.data) : JSON.stringify(call.data));
     const serializedBodies = allCalls.map(serializeBody);
 
+    let batchBoundary = initialBoundary || generateBoundaryId();
     for (
         let attempts = 0;
-        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--changeset_${changeSetNum}`));
+        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--batch_${batchBoundary}`));
+        attempts++
+    ) {
+        if (attempts >= 9) {
+            throw new Error('Unable to generate a batch boundary that does not collide with the payload');
+        }
+        batchBoundary = generateBoundaryId();
+    }
+
+    let changeSetId = generateBoundaryId();
+    for (
+        let attempts = 0;
+        serializedBodies.some((body) => typeof body === 'string' && body.includes(`--changeset_${changeSetId}`));
         attempts++
     ) {
         if (attempts >= 9) {
             throw new Error('Unable to generate a changeset boundary that does not collide with the payload');
         }
-        changeSetNum = Math.random() * 100;
+        changeSetId = generateBoundaryId();
     }
 
     if (!isMulti) {
@@ -289,7 +360,7 @@ export const requestsToBatch = function (
             const headers = parseHeaders(val.headers);
 
             return flatten([
-                '--changeset_' + changeSetNum,
+                '--changeset_' + changeSetId,
                 'Content-Type: application/http',
                 'Content-Transfer-Encoding: binary',
                 ...contentIdHeaders(val),
@@ -303,21 +374,24 @@ export const requestsToBatch = function (
             ]);
         });
 
-        return flatten([
-            '--batch_' + boundary,
-            'Content-Type: multipart/mixed; boundary=changeset_' + changeSetNum,
-            '',
+        return {
+            body: flatten([
+                '--batch_' + batchBoundary,
+                'Content-Type: multipart/mixed; boundary=changeset_' + changeSetId,
+                '',
 
-            flatten(aBatchByResponse),
+                flatten(aBatchByResponse),
 
-            '--changeset_' + changeSetNum + '--',
-            '--batch_' + boundary + '--',
-        ]).join('\r\n');
+                '--changeset_' + changeSetId + '--',
+                '--batch_' + batchBoundary + '--',
+            ]).join('\r\n'),
+            boundary: batchBoundary,
+        };
     }
 
     // Multi-changeset path - Call[][]
     const changesets = (data as Call[][]).map((calls, index) => {
-        const csBoundary = `changeset_${changeSetNum}_${index}`;
+        const csBoundary = `changeset_${changeSetId}_${index}`;
 
         const parts = calls.map((call) => {
             const headers = parseHeaders(call.headers);
@@ -338,7 +412,7 @@ export const requestsToBatch = function (
         });
 
         return [
-            `--batch_${boundary}`,
+            `--batch_${batchBoundary}`,
             `Content-Type: multipart/mixed; boundary=${csBoundary}`,
             '',
             ...flatten(parts),
@@ -347,7 +421,10 @@ export const requestsToBatch = function (
         ];
     });
 
-    return flatten(changesets).concat(`--batch_${boundary}--`).join('\r\n');
+    return {
+        body: flatten(changesets).concat(`--batch_${batchBoundary}--`).join('\r\n'),
+        boundary: batchBoundary,
+    };
 };
 
 // OData V2 retrieve operations (GETs) must be direct batch parts, never

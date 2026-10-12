@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **CSPRNG boundaries (FR-01, FR-08):** outer batch boundary and inner changeset boundaries are now generated using cryptographically secure random identifiers (`crypto.randomUUID`), replacing pseudo-random and timestamp sources (`Math.random` and `new Date().getTime()`).
+- **Outer boundary collision detection (FR-01):** `requestsToBatch` and `operationsToBatch` now check payloads for collisions with the outer `--batch_${boundary}` delimiter in addition to inner changeset boundaries, with up to 10 retry attempts before throwing `Unable to generate a batch boundary that does not collide with the payload`.
+- **CRLF injection defense-in-depth (FR-02, FR-03):** `ODataBatch` constructor validates `auth` against line breaks (`\r`/`\n`), throwing `Call auth must not contain line breaks` without echoing credential values. Batch-level root `headers` keys and values are similarly validated, throwing `Call header '<key>' must not contain line breaks`.
+- **RFC 9110 HTTP method token validation (FR-07):** `Call.method` is strictly validated against the RFC 9110 token specification, rejecting whitespace, control characters, and separators with `Call method must be a valid HTTP token`.
+- **Anchored multipart delimiters (FR-04):** `parseBatch` now anchors boundary matching to line starts (`^--...` with multiline mode), preventing JSON and text payloads containing delimiter substrings from being fragmented.
+- **Robust changeset boundary extraction (FR-06):** `parseBatch` supports quoted boundaries (RFC 2046) and parameters (e.g. `charset=utf-8`), avoiding silent drops of changeset operations.
+- **Resilient response parsing (FR-05):** `parseResponse` safely handles truncated or malformed parts missing blank-line header separation without throwing an uncaught `TypeError`.
+
+### Behavior changes
+
+- Boundaries on generated batches and changesets now follow UUID formatting instead of millisecond timestamps or `Math.random` floats.
+- Inner response parts with truncated or malformed HTTP headers now return `{ code: '', status: '', headers: [], data: <raw>, success: false }` instead of throwing an unhandled `TypeError`.
+- HTTP methods in `Call` objects must be valid RFC 9110 tokens (e.g., methods with spaces or control characters throw `Call method must be a valid HTTP token`).
+- Passing line breaks in `auth` or batch-level root `headers` throws immediately at construction time.
+
 ## [3.0.0] - 2026-10-12
 
 This is a major release. Two observable behaviors of the `string`-typed

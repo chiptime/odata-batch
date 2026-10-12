@@ -1,6 +1,10 @@
-import { requestsToBatch, Call } from '../src/request';
+import * as requestModule from '../src/request';
+import { Call } from '../src/request';
 import { BatchResponse } from '../src/response';
+import * as boundaryModule from '../src/boundary';
 import { makeRandomMock, makeRandomSequenceMock } from './helpers';
+
+const requestsToBatch = (...args: any[]): string => (requestModule.requestsToBatch as any)(...args).body;
 
 /**
  * Property-based and security/characterization tests for requestsToBatch().
@@ -259,7 +263,7 @@ describe('requestsToBatch() security / robustness characterizations', () => {
                 '884',
                 JSON_OPTS
             )
-        ).toThrow('Call method must not contain line breaks');
+        ).toThrow('Call method must be a valid HTTP token');
 
         // header value (string)
         expect(() =>
@@ -401,7 +405,7 @@ describe('requestsToBatch() security / robustness characterizations', () => {
         expect(() => requestsToBatch(calls, '884', JSON_OPTS)).toThrow(
             'Unable to generate a changeset boundary that does not collide with the payload'
         );
-        expect((Math.random as jest.Mock).mock.calls.length).toBe(10);
+        expect(boundaryModule.generateBoundaryId).toHaveBeenCalledTimes(10);
     });
 
     test('unicode survives JSON.stringify unescaped in both paths', () => {

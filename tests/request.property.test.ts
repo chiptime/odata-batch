@@ -63,6 +63,41 @@ describe('requestsToBatch() properties (seeded random inputs)', () => {
 
     const SEEDS = [1, 7, 42, 99, 123, 777, 2026, 31415, 65535, 424242];
 
+    test('PROPERTY: optional IDs add only MIME header lines without changing legacy bytes', () => {
+        for (const seed of SEEDS) {
+            const rng = new LCG(seed);
+            makeRandomMock(42);
+            const { legacy, multi } = randomCalls(rng);
+            for (const calls of [legacy, multi]) {
+                const groups = Array.isArray(calls[0]) ? (calls as Call[][]) : [calls as Call[]];
+                const expected: string[] = [];
+                const tagged = groups.map((cs) =>
+                    cs.map((call, index) => {
+                        const contentId = rng.next() < 0.5 ? undefined : `op_${index}_${rng.int(1, 9999)}`;
+                        if (contentId !== undefined) expected.push(contentId);
+                        return { ...call, contentId };
+                    })
+                );
+                const original = requestsToBatch(calls, 'id', JSON_OPTS);
+                const out = requestsToBatch(Array.isArray(calls[0]) ? tagged : tagged[0], 'id', JSON_OPTS);
+                expect(Array.from(out.matchAll(/^Content-ID: (.+)\r$/gm), (m) => m[1])).toEqual(expected);
+                expect(out.replace(/^Content-ID: .+\r\n/gm, '')).toBe(original);
+            }
+        }
+    });
+
+    test('PROPERTY: duplicate detection resets between changesets but catches a late duplicate', () => {
+        for (const seed of SEEDS) {
+            makeRandomMock(42);
+            const { multi } = randomCalls(new LCG(seed));
+            const tagged = multi.map((cs) => cs.map((call, index) => ({ ...call, contentId: String(index + 1) })));
+            expect(() => requestsToBatch(tagged, 'id', JSON_OPTS)).not.toThrow();
+            const last = tagged[tagged.length - 1];
+            last.push({ ...last[0], url: '$1/Lines' });
+            expect(() => requestsToBatch(tagged, 'id', JSON_OPTS)).toThrow('Duplicate contentId within a changeset: 1');
+        }
+    });
+
     test('PROPERTY: output only ever contains CRLF line breaks, never a bare LF', () => {
         for (const seed of SEEDS) {
             const rng = new LCG(seed);

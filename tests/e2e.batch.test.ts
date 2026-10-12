@@ -31,6 +31,232 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
         mock.restore();
     });
 
+    test('sendGrouped posts once and preserves a collapsed failure followed by a successful changeset', async () => {
+        const batch = new ODataBatch({
+            url: 'http://sap.example.com/batch',
+            auth: 'user:pass',
+            individualResponseType: 'application/json;odata=verbose',
+            calls: [
+                Array.from({ length: 3 }, () => ({ method: 'POST', url: '/Items', data: {} })),
+                [1, 2].map((id) => ({ method: 'POST', url: '/Lines', data: {}, contentId: String(id) })),
+            ],
+        });
+        mock.onPost('http://sap.example.com/batch').reply(
+            200,
+            wire(
+                '--response',
+                'Content-Type: application/http',
+                '',
+                'HTTP/1.1 400 Bad Request',
+                '',
+                '{"error":"atomic failure"}',
+                '--response',
+                'Content-Type: multipart/mixed; boundary=cs',
+                '',
+                '--cs',
+                'Content-Type: application/http',
+                'Content-ID: 1',
+                '',
+                'HTTP/1.1 201 Created',
+                '',
+                '{"id":1}',
+                '--cs',
+                'Content-Type: application/http',
+                'Content-ID: 2',
+                '',
+                'HTTP/1.1 204 No Content',
+                '',
+                '',
+                '--cs--',
+                '--response--'
+            ),
+            { 'content-type': 'multipart/mixed; boundary=response' }
+        );
+
+        const groups = await (batch as any).sendGrouped();
+
+        expect(mock.history.post).toHaveLength(1);
+        expect(sentHeaders(mock.history.post[0]).Accept).toBe('application/json;odata=verbose');
+        expect(groups.map((g: any) => [g.kind, g.partIndex])).toEqual([
+            ['changeset-error', 0],
+            ['changeset', 1],
+        ]);
+        expect(groups[0].error.data).toEqual({ error: 'atomic failure' });
+        expect(groups[0]).not.toHaveProperty('responses');
+        expect(groups[1].responses.map((r: any) => [r.contentId, r.data])).toEqual([
+            ['1', { id: 1 }],
+            ['2', null],
+        ]);
+    });
+
+    test('sendGrouped identifies retrieve errors and rejects malformed counts after only one POST', async () => {
+        const batch = new ODataBatch({
+            url: 'http://sap.example.com/batch',
+            auth: 'user:pass',
+            retrieve: [{ url: '/Items' }],
+        });
+        const response = wire(
+            '--response',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 404 Not Found',
+            '',
+            '{}',
+            '--response--'
+        );
+        mock.onPost('http://sap.example.com/batch').replyOnce(200, response, {
+            'content-type': 'multipart/mixed; boundary=response',
+        });
+        expect((await (batch as any).sendGrouped())[0].kind).toBe('retrieve');
+        mock.onPost('http://sap.example.com/batch').replyOnce(200, '--response--', {
+            'content-type': 'multipart/mixed; boundary=response',
+        });
+        await expect((batch as any).sendGrouped()).rejects.toThrow(/Grouped response/);
+        expect(mock.history.post).toHaveLength(2);
+    });
+
+    test('Content-ID and dependent URLs survive the full mocked pipeline without inference', async () => {
+        const batch = new ODataBatch({
+            url: 'http://sap.example.com/batch',
+            auth: 'user:pass',
+            calls: [
+                [
+                    { method: 'POST', url: '/Items', data: { name: 'one' }, contentId: '1' },
+                    { method: 'POST', url: '$1/Lines', data: {}, contentId: '2' },
+                    { method: 'POST', url: '$1/Other', data: {} },
+                ],
+            ],
+        });
+        mock.onPost('http://sap.example.com/batch').reply(
+            200,
+            wire(
+                '--response',
+                'Content-Type: multipart/mixed; boundary=cs',
+                '',
+                '--cs',
+                'Content-Type: application/http',
+                'Content-ID: 1',
+                '',
+                'HTTP/1.1 201 Created',
+                '',
+                '{"id":1}',
+                '--cs',
+                'Content-Type: application/http',
+                'content-id: 2',
+                '',
+                'HTTP/1.1 204 No Content',
+                '',
+                '',
+                '--cs',
+                'Content-Type: application/http',
+                '',
+                'HTTP/1.1 204 No Content',
+                '',
+                '',
+                '--cs--',
+                '--response--'
+            ),
+            { 'content-type': 'multipart/mixed; boundary=response' }
+        );
+
+        const result = await batch.send();
+
+        expect(mock.history.post[0].data).toContain('Content-ID: 1\r\n\r\nPOST /Items HTTP/1.1');
+        expect(mock.history.post[0].data).toContain('Content-ID: 2\r\n\r\nPOST $1/Lines HTTP/1.1');
+        expect(mock.history.post[0].data.match(/^Content-ID:/gm)).toHaveLength(2);
+        expect(result.map((r) => r.contentId)).toEqual(['1', '2', undefined]);
+        expect(result.map((r) => r.data)).toEqual([{ id: 1 }, null, null]);
+        expect(result[2]).not.toHaveProperty('contentId');
+    });
+
+    test('invalid or duplicate explicit Content-ID rejects before axios transport', () => {
+        for (const contentId of ['1\r\nX-Injected: yes', '1']) {
+            expect(
+                () =>
+                    new ODataBatch({
+                        url: 'http://sap.example.com/batch',
+                        auth: 'user:pass',
+                        calls: [
+                            { method: 'POST', url: '/Items', data: {}, contentId: '1' },
+                            { method: 'POST', url: '$1/Lines', data: {}, contentId },
+                        ],
+                    })
+            ).toThrow(/contentId/);
+        }
+        expect(mock.history.post).toHaveLength(0);
+    });
+
+    test.each([
+        ['Application/JSON;odata=verbose', 'application/json;odata=verbose', { id: 1 }, '{"id":1}', { id: 2 }],
+        ['Application/XML;charset=utf-8', 'application/xml;charset=utf-8', '<item/>', '<item/>', '<result/>'],
+    ])(
+        'parameterized %s reaches axios and controls response parsing',
+        async (value, expected, data, serialized, response) => {
+            const batch = new ODataBatch({
+                url: 'http://sap.example.com/batch',
+                auth: 'user:pass',
+                calls: [
+                    [
+                        {
+                            method: 'POST',
+                            url: '/items',
+                            data,
+                            headers: { 'content-type': 'text/plain', accept: 'text/plain' },
+                        },
+                    ],
+                ],
+                batchResponseType: value,
+                individualResponseType: value,
+            });
+            mock.onPost('http://sap.example.com/batch').reply(
+                200,
+                wire(
+                    '--response',
+                    'Content-Type: application/http',
+                    'Content-Transfer-Encoding: binary',
+                    '',
+                    'HTTP/1.1 200 OK',
+                    `Content-Type: ${expected}`,
+                    '',
+                    typeof response === 'string' ? response : JSON.stringify(response),
+                    '--response--'
+                ),
+                { 'content-type': 'multipart/mixed; boundary=response' }
+            );
+
+            const result = await batch.send();
+
+            const req = mock.history.post[0];
+            expect(sentHeaders(req).Accept).toBe(expected);
+            expect(sentHeaders(req)['Content-Type']).toMatch(/^multipart\/mixed; boundary=batch_/);
+            expect(req.data).toContain(`Content-Type: ${expected}\r\nAccept: ${expected}\r\n\r\n${serialized}\r\n`);
+            expect(result[0].data).toEqual(response);
+        }
+    );
+
+    test('retrieve propagates parameterized JSON Accept and parses JSON without a response Content-Type', async () => {
+        const batch = new ODataBatch({
+            url: 'http://sap.example.com/batch',
+            auth: 'user:pass',
+            retrieve: [{ url: '/items', headers: { accept: 'text/plain', 'content-type': 'text/plain' } }],
+            individualResponseType: 'APPLICATION/JSON;odata=verbose',
+        });
+        mock.onPost('http://sap.example.com/batch').reply(
+            200,
+            wire('--response', 'Content-Type: application/http', '', 'HTTP/1.1 200 OK', '', '{"id":1}', '--response--'),
+            { 'content-type': 'multipart/mixed; boundary=response' }
+        );
+
+        const result = await batch.send();
+
+        expect(sentHeaders(mock.history.post[0]).Accept).toBe('application/json;odata=verbose');
+        expect(mock.history.post[0].data).toContain(
+            'GET /items HTTP/1.1\r\nAccept: application/json;odata=verbose\r\n'
+        );
+        expect(mock.history.post[0].data).not.toContain('text/plain');
+        expect(result[0].data).toEqual({ id: 1 });
+    });
+
     test('200 with CRLF multi-changeset body parses embedded errors through the full pipeline', async () => {
         // Arrange
         const batch = new ODataBatch({

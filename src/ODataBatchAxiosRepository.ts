@@ -1,8 +1,29 @@
 import axios from 'axios';
 import { BatchRequestConfig, ODataBatchRepository } from './BatchRepository';
-import { createBatchResponse, BatchResponseConstructor, BatchResponseParsed } from './response';
+import {
+    createBatchResponse,
+    BatchResponseConstructor,
+    BatchResponseParsed,
+    BatchResponse,
+    BatchRequestLayout,
+    BatchResponseGroup,
+} from './response';
 
 export class ODataBatchAxiosRepository implements ODataBatchRepository {
+    async sendGrouped(
+        url: string,
+        batchRequest: string,
+        config: BatchRequestConfig,
+        accept: string,
+        layout: BatchRequestLayout
+    ): Promise<BatchResponseGroup[]> {
+        const request = await axios.post(url, batchRequest, config);
+        return new BatchResponse(
+            request as unknown as { data: string; headers: Record<string, string> },
+            accept
+        ).parseGrouped(layout);
+    }
+
     async send(
         url: string,
         batchRequest: string,

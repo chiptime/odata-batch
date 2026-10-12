@@ -101,7 +101,11 @@ Content-Type: application/json
 
             // Assert - the LF-only fixture parses after normalization (B9)
             expect(response.response).toHaveLength(1);
-            expect(response.response[0]).toMatchObject({ code: '500', status: 'Internal Server Error', success: false });
+            expect(response.response[0]).toMatchObject({
+                code: '500',
+                status: 'Internal Server Error',
+                success: false,
+            });
             expect(response.response[0].data).toEqual({ error: 'Server error' });
         });
 

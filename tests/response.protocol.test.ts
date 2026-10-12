@@ -30,6 +30,49 @@ const parse = (data: string, contentType = 'multipart/mixed; boundary=batch_884'
     new BatchResponse({ data, headers: headersWith(contentType) }, accept);
 
 describe('BatchResponse protocol conformance edges', () => {
+    test.each(['Content-ID', 'content-id', 'CONTENT-ID', 'CoNtEnT-Id'])(
+        'recognizes MIME %s even before Content-Type',
+        (name) => {
+            const body = wire(
+                '--batch_884',
+                `${name}:\t order-1 \t`,
+                'Content-Type: application/http',
+                '',
+                'HTTP/1.1 204 No Content',
+                'Content-ID: http-only',
+                '',
+                '',
+                '--batch_884--'
+            );
+            const result = parse(body).response;
+            expect(result).toHaveLength(1);
+            expect((result[0] as any).contentId).toBe('order-1');
+            expect(result[0].headers).toEqual([{ key: 'Content-ID', value: 'http-only' }]);
+            expect(result[0].data).toBeNull();
+        }
+    );
+
+    test.each([undefined, ''])(
+        'missing or empty MIME Content-ID %j is not inferred from HTTP headers or payload',
+        (contentId) => {
+            const body = wire(
+                '--batch_884',
+                'Content-Type: application/http',
+                ...(contentId === undefined ? [] : [`Content-ID: ${contentId}`]),
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-ID: inner',
+                '',
+                'Content-ID: payload',
+                '--batch_884--'
+            );
+            const result = parse(body, undefined, 'application/xml').response[0];
+            expect(result).not.toHaveProperty('contentId');
+            expect(result.headers).toEqual([{ key: 'Content-ID', value: 'inner' }]);
+            expect(result.data).toBe('Content-ID: payload');
+        }
+    );
+
     describe('status-line recognition', () => {
         test('HTTP/1.0 status lines are recognized since the 1.[01] regex fix', () => {
             // Arrange - the parser now accepts both HTTP/1.0 and HTTP/1.1
@@ -142,8 +185,8 @@ describe('BatchResponse protocol conformance edges', () => {
 
         test('content-type absent under any casing still throws the descriptive error', () => {
             // Arrange & Act & Assert - other headers must not satisfy the lookup
-            expect(() =>
-                new BatchResponse({ data: 'x', headers: { accept: 'application/json' } }, 'application/json')
+            expect(
+                () => new BatchResponse({ data: 'x', headers: { accept: 'application/json' } }, 'application/json')
             ).toThrow('Missing content-type header, cannot determine batch boundary');
         });
     });

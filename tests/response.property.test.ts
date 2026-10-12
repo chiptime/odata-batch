@@ -92,6 +92,79 @@ describe('BatchResponse properties (seeded random inputs)', () => {
 
     const SEEDS = [1, 7, 42, 99, 123, 777, 2026, 31415, 65535, 424242];
 
+    test('PROPERTY: collapsed failures never shift later group identity or invent child responses', () => {
+        for (const seed of SEEDS) {
+            const rng = new LCG(seed);
+            for (let run = 0; run < 10; run++) {
+                const lines: string[] = [];
+                const layout: any[] = [];
+                const expectedKinds: string[] = [];
+                const expectedSizes: number[] = [];
+                for (let group = 0; group < 5; group++) {
+                    const retrieve = rng.next() < 0.3;
+                    const failed = rng.next() < 0.5;
+                    const count = retrieve ? 1 : rng.int(1, 5);
+                    layout.push(retrieve ? { kind: 'retrieve' } : { kind: 'changeset', operationCount: count });
+                    expectedKinds.push(retrieve ? 'retrieve' : failed ? 'changeset-error' : 'changeset');
+                    expectedSizes.push(!retrieve && !failed ? count : 1);
+                    const boundary = !retrieve && !failed ? `cs_${group}` : 'batch_grouped';
+                    if (boundary !== 'batch_grouped')
+                        lines.push('--batch_grouped', `Content-Type: multipart/mixed; boundary=${boundary}`, '');
+                    for (let op = 0; op < expectedSizes[group]; op++) {
+                        lines.push(
+                            `--${boundary}`,
+                            'Content-Type: application/http',
+                            `Content-ID: ${op + 1}`,
+                            '',
+                            failed ? 'HTTP/1.1 400 Bad Request' : 'HTTP/1.1 200 OK',
+                            '',
+                            '{}',
+                            ''
+                        );
+                    }
+                    if (boundary !== 'batch_grouped') lines.push(`--${boundary}--`);
+                }
+                lines.push('--batch_grouped--');
+                const parser = parse(lines.join(run % 2 ? '\n' : '\r\n'), 'multipart/mixed; boundary=batch_grouped');
+                const groups = (parser as any).parseGrouped(layout);
+                expect(groups.map((g: any) => g.kind)).toEqual(expectedKinds);
+                expect(groups.map((g: any) => g.partIndex)).toEqual([0, 1, 2, 3, 4]);
+                expect(groups.map((g: any) => (g.kind === 'changeset' ? g.responses.length : 1))).toEqual(
+                    expectedSizes
+                );
+                expect(parser.response).toHaveLength(expectedSizes.reduce((sum, n) => sum + n, 0));
+            }
+        }
+    });
+
+    test('PROPERTY: IDs preserve case-sensitive values across casing, ordering, framing, and independent groups', () => {
+        for (const seed of SEEDS) {
+            const rng = new LCG(seed);
+            for (let run = 0; run < 8; run++) {
+                const lines: string[] = [];
+                const expected: (string | undefined)[] = [];
+                for (let group = 0; group < 3; group++) {
+                    const cs = `changeset_${group}`;
+                    lines.push('--batch_ids', `Content-Type: multipart/mixed; boundary=${cs}`, '');
+                    for (let op = 0; op < 3; op++) {
+                        const contentId = rng.next() < 0.3 ? undefined : `Item-${op}`;
+                        const mime = ['Content-Type: application/http'];
+                        if (contentId !== undefined) mime.push(`${randomCase(rng, 'Content-ID')}: ${contentId}`);
+                        if (rng.next() < 0.5) mime.reverse();
+                        lines.push(`--${cs}`, ...mime, '', 'HTTP/1.1 200 OK', 'Content-ID: inner', '', '{}');
+                        expected.push(contentId);
+                    }
+                    lines.push(`--${cs}--`);
+                }
+                lines.push('--batch_ids--');
+                const body = lines.join(rng.next() < 0.5 ? '\n' : '\r\n');
+                const result = parse(body, 'multipart/mixed; boundary=batch_ids').response;
+                expect(result.map((r) => (r as any).contentId)).toEqual(expected);
+                expect(result.map((r) => r.changesetIndex)).toEqual([0, 0, 0, 1, 1, 1, 2, 2, 2]);
+            }
+        }
+    });
+
     test('PROPERTY: arbitrary RFC 2046 boundaries round-trip - N ops => N responses with code/data/changesetIndex', () => {
         const RUNS = 20; // 10 seeds x 20 runs = 200 bounded runs
 
@@ -116,7 +189,11 @@ describe('BatchResponse properties (seeded random inputs)', () => {
                 const lines: string[] = [];
                 const expected: { code: string; status: string; success: boolean; data: unknown }[] = [];
                 multi.forEach((calls, i) => {
-                    lines.push(`--${batchBoundary}`, `Content-Type: multipart/mixed; boundary=${changeSetBoundaries[i]}`, '');
+                    lines.push(
+                        `--${batchBoundary}`,
+                        `Content-Type: multipart/mixed; boundary=${changeSetBoundaries[i]}`,
+                        ''
+                    );
                     calls.forEach((_, op) => {
                         const [code, reason, success] = rng.pick(STATUS_POOL);
                         lines.push(

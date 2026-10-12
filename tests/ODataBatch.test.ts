@@ -5,6 +5,76 @@ import { DummyBatchRepo } from './helpers';
 
 describe('ODataBatch', () => {
     describe('constructor()', () => {
+        describe.each(['batchResponseType', 'individualResponseType'])('%s validation', (option) => {
+            test.each([
+                '',
+                '   ',
+                'yaml',
+                'text/plain',
+                'application/problem+json',
+                'application/*',
+                'application/json,application/xml',
+                'json;odata=verbose',
+                'application /json',
+                'application/json;',
+                'application/json; charset',
+                'application/json; charset=',
+                'application/json; =utf-8',
+                'application/json; charset=utf 8',
+                'application/json; charset="utf-8',
+                'application/json; charset="utf-8"junk',
+                'application/json; charset=utf-8;;odata=verbose',
+                'application/json\r\nX-Injected: yes',
+                '\napplication/xml',
+                'application/xml; charset="utf\r\n8"',
+                'application/json; charset=utf-8\u0000',
+                'application/json; charset="utf\u007f8"',
+                'application/json\t;odata=verbose',
+                'application/json; profile="café"',
+            ])('rejects invalid media type %j before sending', (value) => {
+                const repo = new DummyBatchRepo();
+                expect(
+                    () =>
+                        new ODataBatch(
+                            {
+                                url: 'http://example.com/batch',
+                                auth: 'user:pass',
+                                calls: [{ method: 'POST', url: '/items', data: {} }],
+                                [option]: value,
+                            },
+                            repo
+                        )
+                ).toThrow(`${option} must be a supported JSON or XML media type`);
+                expect(repo.lastRequest).toBe('');
+            });
+        });
+
+        test.each(['batchResponseType', 'individualResponseType'])('validates %s in retrieve mode too', (option) => {
+            expect(
+                () =>
+                    new ODataBatch({
+                        url: 'http://example.com/batch',
+                        auth: 'user:pass',
+                        retrieve: [{ url: '/items' }],
+                        [option]: 'text/plain',
+                    })
+            ).toThrow(`${option} must be a supported JSON or XML media type`);
+        });
+
+        test.each([null, 42, {}, ['json']])('rejects non-string options from JavaScript callers: %j', (value) => {
+            for (const option of ['batchResponseType', 'individualResponseType']) {
+                expect(
+                    () =>
+                        new ODataBatch({
+                            url: 'http://example.com/batch',
+                            auth: 'user:pass',
+                            calls: [{ method: 'POST', url: '/items', data: {} }],
+                            [option]: value as any,
+                        })
+                ).toThrow(`${option} must be a supported JSON or XML media type`);
+            }
+        });
+
         test('empty calls throws error', () => {
             // Arrange
             const config = {
@@ -117,6 +187,36 @@ describe('ODataBatch', () => {
     });
 
     describe('send()', () => {
+        test.each([false, true])(
+            'parameterized XML stays raw with multi-changeset=%s and boundary collision',
+            async (multi) => {
+                const random = jest.spyOn(Math, 'random').mockReturnValueOnce(0.25).mockReturnValue(0.5);
+                const repo = new DummyBatchRepo();
+                const data = '<item>\r\n--changeset_25\r\n</item>';
+                const call = { method: 'POST', url: '/items', data };
+
+                try {
+                    const batch = new ODataBatch(
+                        {
+                            url: 'http://example.com/batch',
+                            auth: 'user:pass',
+                            calls: multi ? [[call], [call]] : [call],
+                            batchResponseType: 'application/xml;charset=utf-8',
+                        },
+                        repo
+                    );
+                    await batch.send();
+
+                    expect(random).toHaveBeenCalledTimes(2);
+                    expect(repo.lastRequest).toContain('boundary=changeset_50');
+                    expect(repo.lastRequest.split(`\r\n\r\n${data}\r\n`)).toHaveLength(multi ? 3 : 2);
+                    expect(repo.lastRequest).not.toContain(JSON.stringify(data));
+                } finally {
+                    random.mockRestore();
+                }
+            }
+        );
+
         test('delegates to mock repository', async () => {
             // Arrange
             const dummyRepo = new DummyBatchRepo();

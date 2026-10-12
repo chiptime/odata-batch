@@ -37,6 +37,38 @@ const parseWithBoundary = (boundary: string, data: string, accept = 'application
     new BatchResponse({ data, headers: { 'content-type': `multipart/mixed; boundary=${boundary}` } }, accept);
 
 describe('BatchResponse wire-format parsing', () => {
+    test.each([false, true])(
+        'extracts each MIME Content-ID without leaking into HTTP headers with nested=%s',
+        (nested) => {
+            const delimiter = nested ? 'changeset_ids' : 'batch_884';
+            const body = wire(
+                ...(nested ? ['--batch_884', `Content-Type: multipart/mixed; boundary=${delimiter}`, ''] : []),
+                `--${delimiter}`,
+                'Content-Type: application/http',
+                'Content-ID: 1',
+                '',
+                'HTTP/1.1 201 Created',
+                'Location: /Items(1)',
+                '',
+                '{"id":1}',
+                `--${delimiter}`,
+                'Content-Type: application/http',
+                'Content-ID: child-2',
+                '',
+                'HTTP/1.1 400 Bad Request',
+                '',
+                '{"error":"bad"}',
+                `--${delimiter}--`,
+                ...(nested ? ['--batch_884--'] : [])
+            );
+            const result = parse(body).response;
+            expect(result.map((r) => (r as any).contentId)).toEqual(['1', 'child-2']);
+            expect(result.map((r) => r.success)).toEqual([true, false]);
+            expect(result[0].headers).toEqual([{ key: 'Location', value: '/Items(1)' }]);
+            expect(result[1].headers).toEqual([]);
+        }
+    );
+
     describe('direct application/http parts (no changeset wrapper)', () => {
         test('parses code, status, headers, JSON data and success', () => {
             // Arrange
@@ -665,70 +697,62 @@ describe('BatchResponse wire-format parsing', () => {
     });
 
     describe('regex metacharacters in boundaries', () => {
-        test.each([
-            'batch+1',
-            'batch?1',
-            'batch(1',
-            'batch.1',
-            'a|b',
-            'a[b',
-        ])('batch boundary %s is treated as a literal delimiter', (boundary) => {
-            // Arrange - every variant is a legal RFC 2046 boundary but a regex
-            // metacharacter; unescaped interpolation corrupts the split regex
-            const body = wire(
-                `--${boundary}`,
-                'Content-Type: application/http',
-                'Content-Transfer-Encoding: binary',
-                '',
-                'HTTP/1.1 200 OK',
-                'Content-Type: application/json',
-                '',
-                '{"id":1}',
-                '',
-                `--${boundary}--`
-            );
+        test.each(['batch+1', 'batch?1', 'batch(1', 'batch.1', 'a|b', 'a[b'])(
+            'batch boundary %s is treated as a literal delimiter',
+            (boundary) => {
+                // Arrange - every variant is a legal RFC 2046 boundary but a regex
+                // metacharacter; unescaped interpolation corrupts the split regex
+                const body = wire(
+                    `--${boundary}`,
+                    'Content-Type: application/http',
+                    'Content-Transfer-Encoding: binary',
+                    '',
+                    'HTTP/1.1 200 OK',
+                    'Content-Type: application/json',
+                    '',
+                    '{"id":1}',
+                    '',
+                    `--${boundary}--`
+                );
 
-            // Act
-            const response = parseWithBoundary(boundary, body);
+                // Act
+                const response = parseWithBoundary(boundary, body);
 
-            // Assert
-            expect(response.response).toHaveLength(1);
-            expect(response.response[0].data).toEqual({ id: 1 });
-        });
+                // Assert
+                expect(response.response).toHaveLength(1);
+                expect(response.response[0].data).toEqual({ id: 1 });
+            }
+        );
 
-        test.each([
-            'changeset+1',
-            'changeset?1',
-            'changeset(1',
-            'changeset.1',
-            'a|b',
-            'a[b',
-        ])('changeset boundary %s is treated as a literal delimiter', (boundary) => {
-            // Arrange - the metacharacter sits in the changeset boundary
-            // declared by the part header and used by the body delimiters
-            const body = wire(
-                '--batch_884',
-                `Content-Type: multipart/mixed; boundary=${boundary}`,
-                '',
-                `--${boundary}`,
-                'Content-Type: application/http',
-                'Content-Transfer-Encoding: binary',
-                '',
-                'HTTP/1.1 201 Created',
-                '',
-                '{"id":1}',
-                '',
-                `--${boundary}--`,
-                '--batch_884--'
-            );
+        test.each(['changeset+1', 'changeset?1', 'changeset(1', 'changeset.1', 'a|b', 'a[b'])(
+            'changeset boundary %s is treated as a literal delimiter',
+            (boundary) => {
+                // Arrange - the metacharacter sits in the changeset boundary
+                // declared by the part header and used by the body delimiters
+                const body = wire(
+                    '--batch_884',
+                    `Content-Type: multipart/mixed; boundary=${boundary}`,
+                    '',
+                    `--${boundary}`,
+                    'Content-Type: application/http',
+                    'Content-Transfer-Encoding: binary',
+                    '',
+                    'HTTP/1.1 201 Created',
+                    '',
+                    '{"id":1}',
+                    '',
+                    `--${boundary}--`,
+                    '--batch_884--'
+                );
 
-            // Act
-            const response = parseWithBoundary('batch_884', body);
+                // Act
+                const response = parseWithBoundary('batch_884', body);
 
-            // Assert
-            expect(response.response).toHaveLength(1);
-            expect(response.response[0].data).toEqual({ id: 1 });
-        });
+                // Assert
+                expect(response.response).toHaveLength(1);
+                expect(response.response[0].data).toEqual({ id: 1 });
+            }
+        );
     });
 
     describe('malformed multipart boundaries', () => {
@@ -766,5 +790,52 @@ describe('BatchResponse wire-format parsing', () => {
             // Assert - split produced no recognizable parts
             expect(response.response).toEqual([]);
         });
+    });
+});
+
+describe('MIME preamble before the first boundary', () => {
+    test.each([
+        ['plain text', 'This is a multi-part message in MIME format.'],
+        ['a Content-Type-looking line', 'intro\r\nContent-Type: text/plain'],
+        ['a Content-ID-looking line', 'intro\r\nContent-ID: 7'],
+        ['a content-type line after a blank line', 'intro\r\n\r\nContent-Type: text/plain'],
+    ])('ignores %s preamble and still parses the real response', (_name, preamble) => {
+        const body = wire(
+            preamble,
+            '--batch_884',
+            'Content-Type: application/http',
+            'Content-Transfer-Encoding: binary',
+            '',
+            'HTTP/1.1 200 OK',
+            'Content-Type: application/json',
+            '',
+            '{"id":1}',
+            '',
+            '--batch_884--'
+        );
+
+        const response = parse(body);
+
+        expect(response.response).toHaveLength(1);
+        expect(response.response[0].code).toBe('200');
+        expect(response.response[0].data).toEqual({ id: 1 });
+    });
+
+    test('keeps a Content-ID-first real part when no preamble is present', () => {
+        const body = wire(
+            '--batch_884',
+            'Content-ID: 1',
+            'Content-Type: application/http',
+            '',
+            'HTTP/1.1 204 No Content',
+            '',
+            '',
+            '--batch_884--'
+        );
+
+        const response = parse(body);
+
+        expect(response.response).toHaveLength(1);
+        expect((response.response[0] as { contentId?: string }).contentId).toBe('1');
     });
 });

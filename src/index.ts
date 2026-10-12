@@ -1,4 +1,12 @@
 export { ODataBatch } from './ODataBatch';
 export { ODataBatchRepository, BatchRequestConfig } from './BatchRepository';
-export { createBatchResponse, BatchResponseConstructor, BatchResponseParsed } from './response';
+export {
+    BatchResponse,
+    createBatchResponse,
+    BatchResponseConstructor,
+    BatchResponseParsed,
+    BatchRequestPart,
+    BatchRequestLayout,
+    BatchResponseGroup,
+} from './response';
 export { Call, RetrieveCall } from './request';

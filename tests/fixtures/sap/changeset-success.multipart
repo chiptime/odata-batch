@@ -1,0 +1,32 @@
+--batch_1001
+Content-Type: multipart/mixed; boundary=changeset_1001_a
+
+--changeset_1001_a
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 1
+
+HTTP/1.1 201 Created
+Location: /Items(1)
+Content-Type: application/json
+
+{"id":1,"name":"one"}
+
+--changeset_1001_a
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+HTTP/1.1 204 No Content
+
+
+--changeset_1001_a
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"id":3}
+
+--changeset_1001_a--
+--batch_1001--

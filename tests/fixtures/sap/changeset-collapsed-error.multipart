@@ -1,0 +1,10 @@
+--batch_1002
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{"error":{"code":"/IWBEP/CX_MGW_BUSI_EXCEPTION","message":"Changeset failed"}}
+
+--batch_1002--

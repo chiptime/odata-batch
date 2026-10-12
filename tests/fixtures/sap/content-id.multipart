@@ -1,0 +1,23 @@
+--batch_1003
+Content-Type: multipart/mixed; boundary=changeset_1003_a
+
+--changeset_1003_a
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 1
+
+HTTP/1.1 201 Created
+
+{"id":10}
+
+--changeset_1003_a
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 2
+
+HTTP/1.1 201 Created
+
+{"id":11}
+
+--changeset_1003_a--
+--batch_1003--

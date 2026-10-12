@@ -1,0 +1,13 @@
+This is a multi-part message in MIME format.
+Content-Type: text/plain
+
+--batch_1004
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"ok":true}
+
+--batch_1004--

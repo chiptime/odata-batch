@@ -1,0 +1,21 @@
+--batch_1005
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"kind":"get"}
+
+--batch_1005
+Content-Type: multipart/mixed; boundary=changeset_1005_a
+
+--changeset_1005_a
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+HTTP/1.1 204 No Content
+
+
+--changeset_1005_a--
+--batch_1005--

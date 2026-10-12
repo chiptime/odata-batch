@@ -201,6 +201,16 @@ export class BatchResponse implements BatchResponseInterface {
         // after them is payload, even when the payload itself contains
         // blank lines.
         const responseParts = part.split('\r\n\r\n');
+        if (responseParts.length < 2) {
+            return {
+                code: '',
+                status: '',
+                headers: [],
+                data: part.replace(/(?:\r\n)+$/, ''),
+                success: false,
+            };
+        }
+
         // Only MIME headers identify the operation; an inner HTTP Content-ID
         // remains in `headers` and must never be inferred as MIME metadata.
         const contentId = responseParts[0]

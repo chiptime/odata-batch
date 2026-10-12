@@ -29,7 +29,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 - [x] T-03: CRLF validation for auth and root headers (FR-02, FR-03)
 - [x] T-04: HTTP method token validation (FR-07)
 - [x] T-05: Anchored delimiters and quoted changeset boundaries in parseBatch (FR-04, FR-06)
-- [ ] T-06: Resilient malformed parts in parseResponse (FR-05)
+- [x] T-06: Resilient malformed parts in parseResponse (FR-05)
 - [ ] T-07: CHANGELOG and README
 - [ ] T-08: Final verification
 
@@ -106,7 +106,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, API pública intacta)
 
 ## T-05 Execution evidence
-- Commit: pending
+- Commit: `99f7309`
 - RED observado en `tests/parser-robustness.test.ts`: 4 fallos (corte indebido de payload JSON con subcadena de boundary exterior, TypeError en changeset con subcadena de boundary en payload, y descarte total de operaciones de changeset con boundary entre comillas RFC 2046 y con parámetros).
 - Implementación GREEN:
   - Unificación de extracción de boundaries mediante `BOUNDARY_REGEX = /(?:^|;) *boundary *= *(?:"([^"\r\n]*)"(?![^;\r\n])|([^;\r\n]+))/im` y helper `extractBoundary(headerOrPart)`, eliminando regexes duplicadas en `getBoundary`, `parseGrouped` y `parseBatch`.
@@ -118,8 +118,22 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-05: PASS (`npm run build`, exit 0)
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, exit 0)
 
+## T-06 Execution evidence
+- Commit: pending
+- RED observado en `tests/malformed-part.test.ts`: 2 fallos (`TypeError: Cannot read properties of undefined (reading 'split')` en `responseParts[1]` ante partes truncadas sin doble salto de línea).
+- Implementación GREEN:
+  - Añadida guarda en `parseResponse(part)` comprobando `if (responseParts.length < 2)`.
+  - Retorno directo de `{ code: '', status: '', headers: [], data: part.replace(/(?:\r\n)+$/, ''), success: false }` sin TypeError, eliminando el riesgo de crash por partes malformadas y preservando el texto original de la parte sin los CRLF estructurales del delimitador.
+  - Actualizado test de caracterización histórica en `tests/response.wire.test.ts:317` para validar la ausencia de `TypeError` y la recepción del objeto seguro de error.
+- Gates observados:
+  - G-01: PASS (21 suites, 462 tests)
+  - G-03: PASS (`npm run lint`, exit 0)
+  - G-04: PASS (`npm run format:check`, Prettier clean)
+  - G-05: PASS (`npm run build`, exit 0)
+  - G-07: PASS (`git diff --exit-code main -- src/index.ts`, API pública intacta)
+
 ## Resume bookmark
 - Pack identity: LAUNCH — odata-batch security hardening loop (launch text + PRD SHA-256: eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d)
-- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`), T-03 (`fb5650d`), T-04 (`78656e2`)
-- Active task: T-05 — remediation rounds left: 2
-- Next action: commit T-05
+- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`), T-03 (`fb5650d`), T-04 (`78656e2`), T-05 (`99f7309`)
+- Active task: T-06 — remediation rounds left: 2
+- Next action: commit T-06

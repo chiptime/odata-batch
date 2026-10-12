@@ -314,13 +314,22 @@ describe('BatchResponse wire-format parsing', () => {
             expect(response.response[0].data).toEqual({ id: 1 });
         });
 
-        test('part with content-type but no response block throws TypeError', () => {
+        test('part with content-type but no response block yields resilient malformed part without TypeError', () => {
             // Arrange - truncated part: passes the content-type filter, but has no
             // \r\n\r\n-separated response block, so responseParts[1] is undefined
             const body = wire('--batch_884', 'Content-Type: application/http', '--batch_884--');
 
-            // Act & Assert - characterization of current behavior
-            expect(() => parse(body)).toThrow(TypeError);
+            // Act & Assert - resilient handling per FR-05
+            const response = parse(body);
+            expect(response.response).toHaveLength(1);
+            expect(response.response[0]).toEqual({
+                code: '',
+                status: '',
+                headers: [],
+                data: 'Content-Type: application/http',
+                success: false,
+                changesetIndex: 0,
+            });
         });
 
         test('response block without an HTTP status line yields empty code/status and success=false', () => {

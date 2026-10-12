@@ -6,22 +6,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [3.0.0] - 2026-10-12
 
-- Response parser tolerates empty or whitespace-only payloads with JSON accept
-  (e.g. `204 No Content`): `data` is `null` instead of a thrown `SyntaxError`.
-  Non-JSON accept keeps the previous `''`.
-- Batch and changeset boundaries are matched literally even when they contain
-  regex metacharacters (legal per RFC 2046): previously they were interpolated
-  unescaped into the split `RegExp`, silently yielding zero or corrupted parts.
-- The `content-type` response header is now found case-insensitively
-  (RFC 9110); previously only the exact lowercase key worked, and any other
-  casing threw `Missing content-type header`.
-- One part with an unparseable JSON body no longer throws and loses its
-  siblings: `data` becomes the raw payload string for that part only.
+This is a major release. Two observable behaviors of the `string`-typed
+response-type options changed, so code that compiled before can now throw or
+parse differently. See the **BREAKING** items in Changed.
+
+### Added
+
+- **JSON/XML media types with parameters.** `batchResponseType` and
+  `individualResponseType` now accept `json`/`xml`, `application/json`,
+  `application/xml`, `text/xml` and `application/atom+xml`, case-insensitively,
+  and preserve MIME parameters such as `application/json;odata=verbose` or
+  `application/xml;charset=utf-8` on the wire and in the inner `Content-Type`
+  and `Accept` headers.
+- **MIME `Content-ID` for dependent operations.** Set optional `Call.contentId`
+  (a nonempty HTTP token, unique per changeset) to emit a MIME `Content-ID`
+  header, so a later operation in the same changeset can reference a newly
+  created entity (e.g. `$1/Lines`). Parsed responses expose the server ID as
+  `BatchResponseParsed.contentId` (MIME headers only, matched case-insensitively
+  and in any order).
+- **Changeset-aware grouped responses.** `sendGrouped(): Promise<BatchResponseGroup[]>`
+  returns one group per top-level request part (`changeset`, `changeset-error`,
+  `retrieve`, `unclassified`) with a stable `partIndex`, so a changeset that
+  collapses to a single error keeps its identity instead of shifting later
+  results. The exported `BatchResponse` parser adds `parseGrouped(layout?)` and
+  `groupedResponse`; custom repositories may implement the optional
+  `sendGrouped(...)` method (unsupported repositories reject before transport).
+- **Ordered mixed batches.** Pass `operations: (RetrieveCall | Call[])[]` to
+  interleave direct GET parts and atomic changesets in one `$batch`, preserving
+  input order and reusing the existing injection, `Content-ID` and
+  boundary-collision guards.
+- New exports: `BatchResponse`, `BatchRequestPart`, `BatchRequestLayout`,
+  `BatchResponseGroup`, `BatchOperation`.
 
 ### Changed
 
+- **BREAKING** an unsupported or malformed response-type value now throws
+  `<option> must be a supported JSON or XML media type` at construction instead
+  of silently falling back to XML. Valid `json`/`xml` aliases and legacy
+  defaults are unchanged.
+- **BREAKING** the flat response parser now keeps parts whose MIME headers start
+  with `Content-ID`, previously dropped because the filter required
+  `Content-Type` first.
+- `send()` is documented precisely: it resolves to one entry per actual inner
+  HTTP response, in wire order; a failed changeset can collapse to a single
+  error, so one-to-one positional mapping to the calls is not guaranteed.
+  `calls`, `retrieve` and `operations` are mutually exclusive.
 - **Behavior:** the payload parsing mode is selected by the accept media type
   before `;` (trimmed, case-insensitive), so `application/json;odata=verbose`
   now parses as JSON. Other accepts (e.g. `application/xml`) stay raw text.
@@ -36,6 +67,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (with `code: ''`) instead of `success: true`.
 - **Behavior:** LF-only (or mixed LF/CRLF) response bodies are normalized to
   CRLF before parsing, so they parse instead of silently returning `[]`.
+
+### Fixed
+
+- A MIME preamble containing a header-looking line before the first boundary no
+  longer crashes the parser: the preamble is excluded structurally before the
+  parts are filtered.
+- Response parser tolerates empty or whitespace-only payloads with JSON accept
+  (e.g. `204 No Content`): `data` is `null` instead of a thrown `SyntaxError`.
+  Non-JSON accept keeps the previous `''`.
+- Batch and changeset boundaries are matched literally even when they contain
+  regex metacharacters (legal per RFC 2046): previously they were interpolated
+  unescaped into the split `RegExp`, silently yielding zero or corrupted parts.
+- The `content-type` response header is now found case-insensitively
+  (RFC 9110); previously only the exact lowercase key worked, and any other
+  casing threw `Missing content-type header`.
+- One part with an unparseable JSON body no longer throws and loses its
+  siblings: `data` becomes the raw payload string for that part only.
+
+### Engineering
+
+- TypeScript: explicit `rootDir: "src"` so `tsc` emits `dist` with the current
+  toolchain.
+- 396 tests across unit, golden-wire, protocol, seeded-property and
+  mocked-transport E2E layers; 91.86% mutation score.
 
 ## [2.1.0] - 2026-10-02
 

@@ -28,7 +28,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 - [x] T-02: CSPRNG boundaries and outer collision check (FR-01, FR-08)
 - [x] T-03: CRLF validation for auth and root headers (FR-02, FR-03)
 - [x] T-04: HTTP method token validation (FR-07)
-- [ ] T-05: Anchored delimiters and quoted changeset boundaries in parseBatch (FR-04, FR-06)
+- [x] T-05: Anchored delimiters and quoted changeset boundaries in parseBatch (FR-04, FR-06)
 - [ ] T-06: Resilient malformed parts in parseResponse (FR-05)
 - [ ] T-07: CHANGELOG and README
 - [ ] T-08: Final verification
@@ -91,7 +91,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, exit 0)
 
 ## T-04 Execution evidence
-- Commit: pending
+- Commit: `78656e2`
 - RED observado en `tests/method.test.ts`: 17 fallos (Received function did not throw para métodos inválidos con espacios, caracteres de control, separadores no conformes RFC 9110 como `"POST /admin HTTP/1.1"`, `""`, `"POST@"`, etc., y formato inesperado de error en saltos de línea).
 - Implementación GREEN:
   - Definición de `HTTP_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/` en `src/request.ts` conforme a RFC 9110 token.
@@ -105,8 +105,21 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-05: PASS (`npm run build`, tsc exit 0)
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, API pública intacta)
 
+## T-05 Execution evidence
+- Commit: pending
+- RED observado en `tests/parser-robustness.test.ts`: 4 fallos (corte indebido de payload JSON con subcadena de boundary exterior, TypeError en changeset con subcadena de boundary en payload, y descarte total de operaciones de changeset con boundary entre comillas RFC 2046 y con parámetros).
+- Implementación GREEN:
+  - Unificación de extracción de boundaries mediante `BOUNDARY_REGEX = /(?:^|;) *boundary *= *(?:"([^"\r\n]*)"(?![^;\r\n])|([^;\r\n]+))/im` y helper `extractBoundary(headerOrPart)`, eliminando regexes duplicadas en `getBoundary`, `parseGrouped` y `parseBatch`.
+  - Implementación de `splitMultipart(body, boundary, requireClosingBoundary)` con delimitadores anclados a inicio de línea (`^--...` con flag `m`), delegando `splitGroupedMultipart` a este método (con `requireClosingBoundary = true`) y reutilizándolo en `parseBatch` para delimitar tanto las partes externas como los changesets internos de forma anclada.
+- Gates observados:
+  - G-01: PASS (20 suites, 460 tests)
+  - G-03: PASS (`npm run lint`, exit 0)
+  - G-04: PASS (`npm run format:check`, Prettier clean)
+  - G-05: PASS (`npm run build`, exit 0)
+  - G-07: PASS (`git diff --exit-code main -- src/index.ts`, exit 0)
+
 ## Resume bookmark
 - Pack identity: LAUNCH — odata-batch security hardening loop (launch text + PRD SHA-256: eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d)
-- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`), T-03 (`fb5650d`)
-- Active task: T-04 — remediation rounds left: 2
-- Next action: commit T-04
+- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`), T-03 (`fb5650d`), T-04 (`78656e2`)
+- Active task: T-05 — remediation rounds left: 2
+- Next action: commit T-05

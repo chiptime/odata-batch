@@ -38,6 +38,16 @@ export function createBatchResponse(
 // so boundary delimiters are always matched literally
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const BOUNDARY_REGEX = /(?:^|;) *boundary *= *(?:"([^"\r\n]*)"(?![^;\r\n])|([^;\r\n]+))/im;
+
+const extractBoundary = (headerOrPart: string): string | undefined => {
+    const match = headerOrPart.match(BOUNDARY_REGEX);
+    if (!match) {
+        return undefined;
+    }
+    return (match[1] ?? match[2]).trim();
+};
+
 export class BatchResponse implements BatchResponseInterface {
     private boundary: string;
     private accept: string;
@@ -85,11 +95,11 @@ export class BatchResponse implements BatchResponseInterface {
                 if (expected?.kind === 'retrieve') {
                     throw new Error('Grouped response changeset does not match retrieve layout');
                 }
-                const boundary = mime.contentType.match(/(?:^|;) *boundary *= *(?:"([^"\r\n]+)"|([^;"\r\n]+))(?=;|$)/i);
+                const boundary = extractBoundary(mime.contentType);
                 if (!boundary) {
                     throw new Error('Grouped response changeset is missing a valid boundary');
                 }
-                const children = this.splitGroupedMultipart(mime.body, (boundary[1] ?? boundary[2]).trim());
+                const children = this.splitGroupedMultipart(mime.body, boundary);
                 const responses = children.map((child) => this.parseGroupedHttp(child, partIndex));
                 if (
                     !responses.length ||
@@ -146,7 +156,7 @@ export class BatchResponse implements BatchResponseInterface {
         return { ...this.parseResponse(part.trimStart()), changesetIndex: partIndex };
     }
 
-    private splitGroupedMultipart(body: string, boundary: string): string[] {
+    private splitMultipart(body: string, boundary: string, requireClosingBoundary = false): string[] {
         if (!boundary || /[\r\n]/.test(boundary)) {
             throw new Error('Grouped response has an invalid multipart boundary');
         }
@@ -154,7 +164,7 @@ export class BatchResponse implements BatchResponseInterface {
             return [];
         }
         // Delimiters must occupy complete lines, not substrings in payloads.
-        const delimiter = new RegExp(`^--${escapeRegExp(boundary)}(--)?[ \\t]*(?:\\r\\n|$)`, 'gm');
+        const delimiter = new RegExp(`^--${escapeRegExp(boundary)}(--)?[ \\t]*(?:\\r\\n|$)`, 'gmi');
         const parts: string[] = [];
         let start: number | undefined;
         for (const match of body.matchAll(delimiter)) {
@@ -166,7 +176,17 @@ export class BatchResponse implements BatchResponseInterface {
             }
             start = match.index + match[0].length;
         }
-        throw new Error('Grouped response multipart is missing a matching closing boundary');
+        if (requireClosingBoundary) {
+            throw new Error('Grouped response multipart is missing a matching closing boundary');
+        }
+        if (start !== undefined) {
+            parts.push(body.slice(start));
+        }
+        return parts;
+    }
+
+    private splitGroupedMultipart(body: string, boundary: string): string[] {
+        return this.splitMultipart(body, boundary, true);
     }
 
     ensureHasAccept(): void {
@@ -278,15 +298,8 @@ export class BatchResponse implements BatchResponseInterface {
         // endings by normalizing every line break to CRLF first
         const normalizedBody = body.replace(/\r?\n/g, '\r\n');
 
-        //Split the batch result into its associated parts
-        const delimiter = '--' + this.boundary;
-        const batchParts = normalizedBody
-            .split(RegExp('--' + escapeRegExp(this.boundary) + '(?:\r\n)?(?:--\r\n)?'))
-            // Everything before the first delimiter is an RFC 2046 preamble,
-            // never a part. Dropping it structurally stops a preamble that
-            // happens to contain a header-looking line from being parsed as a
-            // response (the split yields the preamble as element 0).
-            .slice(normalizedBody.startsWith(delimiter) ? 0 : 1);
+        // Split the batch result into its associated parts using anchored delimiters
+        const batchParts = this.splitMultipart(normalizedBody, this.boundary);
 
         const parseResponses = batchParts
             // MIME headers may start with Content-ID, not just Content-Type.
@@ -297,29 +310,17 @@ export class BatchResponse implements BatchResponseInterface {
             )
             .flatMap((batchPart: string, changesetIndex: number) => {
                 // For each batch part, check to see if the part is a changeset.
-                const boundary = batchPart.match(RegExp('boundary=(.+)', 'm'));
-                if (!boundary) {
+                const changeSetBoundary = extractBoundary(batchPart);
+                if (!changeSetBoundary) {
                     // No boundary found - return raw part with current changesetIndex
                     return [{ part: batchPart, changesetIndex }];
                 }
 
-                const changeSetBoundary = escapeRegExp(boundary[1]);
-
-                const changeSetBody = batchPart.match(
-                    RegExp('(--' + changeSetBoundary + '\r\n[^]+--' + changeSetBoundary + ')', 'i')
-                );
-
-                const changeSetParts =
-                    (changeSetBody &&
-                        // Split with the same case-insensitivity as the changeset
-                        // body match above, so declared/used case mismatches do
-                        // not leave delimiters inside the parts
-                        changeSetBody[1].split(RegExp('--' + changeSetBoundary + '(?:\r\n)?(?:--\r\n)?', 'i'))) ||
-                    [];
+                const changeSetParts = this.splitMultipart(batchPart, changeSetBoundary);
 
                 // Return each changeset part with its changesetIndex
                 return changeSetParts
-                    .filter((p: string) => p)
+                    .filter((p: string) => p.trim() !== '')
                     .map((part: string) => ({
                         part,
                         changesetIndex,
@@ -339,13 +340,13 @@ export class BatchResponse implements BatchResponseInterface {
         if (!contentType) {
             throw new Error('Missing content-type header, cannot determine batch boundary');
         }
-        const boundaryMatch = contentType.match(/boundary=([^;]+)/);
+        const boundaryMatch = contentType.match(BOUNDARY_REGEX);
 
         this.ensureHasBoundary(boundaryMatch);
 
         // RFC 2046 allows quoted boundary parameters; the quotes are not
         // part of the delimiter used in the body
-        return boundaryMatch[1].replace(/^"(.*)"$/, '$1');
+        return (boundaryMatch[1] ?? boundaryMatch[2]).trim();
     }
 
     ensureHasBoundary(boundaryMatch: RegExpMatchArray | null): asserts boundaryMatch is RegExpMatchArray {

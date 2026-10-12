@@ -37,6 +37,26 @@ const normalizeMediaType = (value: string, option: string): string => {
     return match[1].toLowerCase() + match[2];
 };
 
+const LINE_BREAK = /[\r\n]/;
+
+const ensureAuthIsSafe = (auth: string): void => {
+    if (LINE_BREAK.test(auth)) {
+        throw new Error('Call auth must not contain line breaks');
+    }
+};
+
+const ensureHeadersAreSafe = (headers?: Record<string, string>): void => {
+    if (!headers) {
+        return;
+    }
+
+    Object.entries(headers).forEach(([key, value]) => {
+        if (LINE_BREAK.test(key) || LINE_BREAK.test(String(value))) {
+            throw new Error(`Call header '${key}' must not contain line breaks`);
+        }
+    });
+};
+
 export class ODataBatch {
     private auth: string;
     private headers: Record<string, string> | undefined;
@@ -73,6 +93,8 @@ export class ODataBatch {
         batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
         this.ensureSingleMode(calls, retrieve, operations);
+        ensureAuthIsSafe(auth);
+        ensureHeadersAreSafe(headers);
 
         this.headers = headers;
         this.auth = auth;

@@ -26,7 +26,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 - [x] T-00: Baseline and tracking
 - [x] T-01: Apply D1-D10 to the PRD
 - [x] T-02: CSPRNG boundaries and outer collision check (FR-01, FR-08)
-- [ ] T-03: CRLF validation for auth and root headers (FR-02, FR-03)
+- [x] T-03: CRLF validation for auth and root headers (FR-02, FR-03)
 - [ ] T-04: HTTP method token validation (FR-07)
 - [ ] T-05: Anchored delimiters and quoted changeset boundaries in parseBatch (FR-04, FR-06)
 - [ ] T-06: Resilient malformed parts in parseResponse (FR-05)
@@ -61,6 +61,7 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
 - SHA-256 resultante de `docs/prds/security-hardening-prd.md`: `eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d`
 
 ## T-02 Execution evidence
+- Commit: `92a41f5`
 - RED observado en `tests/boundary.test.ts`: 6 fallos de comportamiento en ejecución (falta de retorno `{ body, boundary }`, ausencia de detección de colisión exterior y mensaje `Unable to generate a batch boundary that does not collide with the payload`, persistencia de timestamp en `ODataBatch` y uso de `Math.random` en changesets).
 - Implementación GREEN:
   - Creación de `src/boundary.ts` exportando `generateBoundaryId()` sobre `randomUUID()`.
@@ -75,8 +76,22 @@ Harden `odata-batch` against boundary collision/injection, header injection (CRL
   - G-07: PASS (`git diff --exit-code main -- src/index.ts`, API pública intacta)
   - G-09: PASS (`sh -c '! grep -rnE "Math\.random|new Date\(\)\.getTime" src/'`, exit 0, cero generadores débiles en `src/`)
 
+## T-03 Execution evidence
+- Commit: pending
+- RED observado en `tests/crlf.test.ts`: 7 fallos (Received function did not throw para saltos de línea `\r`, `\n`, `\r\n` en `auth` y cabeceras raíz).
+- Implementación GREEN:
+  - Validación de `auth` con `LINE_BREAK = /[\r\n]/` en `src/ODataBatch.ts`, lanzando `Call auth must not contain line breaks` sin incluir nunca el valor de la credencial en el mensaje.
+  - Validación de cabeceras raíz con `ensureHeadersAreSafe` en `src/ODataBatch.ts` contra claves y valores con saltos de línea (`Call header '<key>' must not contain line breaks`).
+  - Test documental de comportamiento nativo de Node.js `http.OutgoingMessage` rechazando CRLF en cabeceras.
+- Gates observados:
+  - G-01: PASS (18 suites, 425 tests)
+  - G-03: PASS (`npm run lint`, exit 0)
+  - G-04: PASS (`npm run format:check`, exit 0)
+  - G-05: PASS (`npm run build`, exit 0)
+  - G-07: PASS (`git diff --exit-code main -- src/index.ts`, exit 0)
+
 ## Resume bookmark
 - Pack identity: LAUNCH — odata-batch security hardening loop (launch text + PRD SHA-256: eefaa98d4cc1ec5436505742cf343eae2c28f0ae56a65c1ca14cafcf14213c7d)
-- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (commit pendiente)
+- Completed: T-00 (`856b063`), T-01 (`a89d4f9`), T-02 (`92a41f5`)
 - Active task: T-03 — remediation rounds left: 2
-- Next action: T-03 RED tests for CRLF validation in auth and root headers (FR-02, FR-03)
+- Next action: commit T-03

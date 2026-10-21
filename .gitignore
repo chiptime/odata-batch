@@ -8,3 +8,5 @@ coverage/
 .atl/
 .stryker-tmp/
 stryker.log
+.codegraph/
+.agy-diagnostics/

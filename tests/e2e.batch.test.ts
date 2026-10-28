@@ -319,7 +319,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
         const batch = new ODataBatch({
             url: 'http://sap.example.com/batch',
             auth: 'user:pass',
-            calls: [[{ method: 'GET', url: "/Items('1')", data: null }]],
+            calls: [[{ method: 'DELETE', url: "/Items('1')", data: null }]],
         });
         const ts = (batch as any)['boundary'] as string;
         mock.onPost('http://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
@@ -345,7 +345,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
         const batch = new ODataBatch({
             url: 'http://sap.example.com/batch',
             auth: 'user:pass',
-            calls: [{ method: 'GET', url: '/Items', data: null }],
+            calls: [{ method: 'DELETE', url: '/Items', data: null }],
         });
         mock.onPost('http://sap.example.com/batch').reply(400, 'Bad Request');
 
@@ -372,7 +372,7 @@ describe('ODataBatch send() configuration semantics', () => {
             url: 'http://sap.example.com/batch',
             auth: 'user:pass',
             headers: { Accept: 'text/plain', 'Content-Type': 'text/plain', 'X-Custom': 'keep-me' } as any,
-            calls: [{ method: 'GET', url: '/Items', data: null }],
+            calls: [{ method: 'DELETE', url: '/Items', data: null }],
         });
         const ts = (batch as any)['boundary'] as string;
         mock.onPost('http://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
@@ -395,7 +395,7 @@ describe('ODataBatch send() configuration semantics', () => {
         // show 'Basic'; what matters here is what ODataBatch itself composes
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
-            { url: 'http://x/batch', auth: '', calls: [{ method: 'GET', url: '/Items', data: null }] },
+            { url: 'http://x/batch', auth: '', calls: [{ method: 'DELETE', url: '/Items', data: null }] },
             repo
         );
 
@@ -416,7 +416,7 @@ describe('ODataBatch send() configuration semantics', () => {
         // Arrange
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
-            { url: 'http://x/batch', auth, calls: [{ method: 'GET', url: '/Items', data: null }] },
+            { url: 'http://x/batch', auth, calls: [{ method: 'DELETE', url: '/Items', data: null }] },
             repo
         );
 
@@ -438,7 +438,7 @@ describe('ODataBatch send() configuration semantics', () => {
             },
         };
         const batch = new ODataBatch(
-            { url: 'http://x/batch', auth: 'a:b', calls: [{ method: 'GET', url: '/x', data: null }] },
+            { url: 'http://x/batch', auth: 'a:b', calls: [{ method: 'DELETE', url: '/x', data: null }] },
             customRepo
         );
 
@@ -454,7 +454,7 @@ describe('ODataBatch send() configuration semantics', () => {
 
 describe('compile-time type surface', () => {
     test('Call and Call[][] shapes are assignable', () => {
-        const call: Call = { method: 'GET', url: '/x', data: null };
+        const call: Call = { method: 'DELETE', url: '/x', data: null };
         const withHeaders: Call = { method: 'POST', url: '/x', headers: { 'x-a': 'b' }, data: {} };
         const legacy: Call[] = [call, withHeaders];
         const multi: Call[][] = [[call], [withHeaders]];

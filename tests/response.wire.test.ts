@@ -161,7 +161,8 @@ describe('BatchResponse wire-format parsing', () => {
                 accept: 'application/json',
             }).body;
 
-            const boundaries = Array.from(request.matchAll(/boundary=(changeset_42_\d)/g)).map((m) => m[1]);
+            expect(typeof request).toBe('string');
+            const boundaries = Array.from(request.toString().matchAll(/boundary=(changeset_42_\d)/g)).map((m) => m[1]);
             expect(boundaries).toEqual(['changeset_42_0', 'changeset_42_1']);
 
             const respond = (boundary: string, code: string, payload: string): string[] => [

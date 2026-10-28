@@ -50,7 +50,7 @@ describe('FR-07: HTTP method token validation (RFC 9110)', () => {
         });
 
         test.each([
-            ['GET'],
+            ['MERGE'],
             ['POST'],
             ['PUT'],
             ['DELETE'],

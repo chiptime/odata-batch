@@ -20,6 +20,7 @@ export type BatchResponseGroup =
 
 export interface BatchResponseInterface {
     response: BatchResponseParsed[];
+    parseGrouped?(layout?: BatchRequestLayout): BatchResponseGroup[];
 }
 
 export interface BatchResponseConstructor {

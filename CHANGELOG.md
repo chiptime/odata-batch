@@ -4,6 +4,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **No redirect following in the default transport:** `ODataBatchAxiosRepository` now sends every `$batch` POST with `maxRedirects: 0`. Following a redirect could replay the `Authorization` header to another origin ([GHSA-q3jh-wrc6-jgq8](https://github.com/advisories/GHSA-q3jh-wrc6-jgq8), [GHSA-8r9p-f939-6h3c](https://github.com/advisories/GHSA-8r9p-f939-6h3c) in `follow-redirects`). This defense holds whatever `follow-redirects` version a consumer resolves.
+- Lockfile: `follow-redirects` 1.16.0 → 1.16.2 (runtime `npm audit`: 0 vulnerabilities) and the dev-only `brace-expansion` (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7).
+
+### Fixed
+
+- **Case-insensitive `Authorization` override:** a batch-level `headers.authorization` (any casing) now overrides `auth`, as RFC 9110 requires. Previously only the exact key `Authorization` was recognized, so `authorization: 'Bearer ...'` was silently replaced on the wire by `Basic <auth>`. The header is emitted once, under the canonical `Authorization` key.
+
+### Behavior changes
+
+- A 3xx answer from the batch endpoint now rejects the promise instead of being followed. Point `url` at the final endpoint or supply a custom `ODataBatchRepository` if a redirect is genuinely required.
+
+### Added
+
+- Opt-in `timeout` (milliseconds) and `maxContentLength` (response bytes), validated as finite non-negative numbers and forwarded to repositories without changing defaults.
+- `protocolVersion: '2.0' | '4.0' | '4.01'`: opt-in outer version headers; explicit caller version headers win case-insensitively. v4 multipart assigns missing Content-IDs and enforces batch-wide uniqueness.
+- Binary outgoing `Buffer` / `Uint8Array` call data, preserving bytes and the call's required Content-Type. Multipart bodies become Buffers only when binary parts exist; collision guards also scan binary payloads.
+- OData **4.01** JSON batching via `batchFormat: 'json'`: requests, atomicity groups, explicit dependencies, base64url binary bodies, response-id correlation and grouped responses. JSON requires protocol 4.01 and JSON media types; it is not a 4.0 feature.
+- Exported `ProtocolVersion`, `BatchFormat`, `BatchOperation`, `operationsToJsonBatch`, `JsonBatchResponse`, and `createJsonBatchResponseParser`. Grouped repositories may accept an optional response parser as their sixth argument.
+
+### Breaking
+
+- GET methods inside `calls` or `operations` changesets now throw `GET is not allowed inside a changeset; use retrieve or operations`. Direct retrieve entries remain supported.
+- Repository request-body types widen from `string` to `string | Buffer`. Custom transports must preserve binary bytes, and grouped JSON transports must use the supplied parser instead of assuming multipart.
+
+### JSON batch response behavior
+
+- Singleton changesets use request layout even when responses omit `atomicityGroup`. Failed groups mark all returned members unsuccessful, preserve the actual failing response, and allow omitted rolled-back siblings without synthesizing results.
+- Invalid envelopes, duplicate/unknown response ids, and unexplained missing responses reject parsing. Fully omitted operations after `Prefer: continue-on-error=false` are not reconstructed.
+
 ## [3.1.0] - 2026-10-22
 
 ### Security

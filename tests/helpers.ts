@@ -9,7 +9,9 @@ import * as boundaryModule from '../src/boundary';
  */
 export class DummyBatchRepo implements ODataBatchRepository {
     public lastUrl = '';
-    public lastRequest = '';
+    // Widened for binary batches (S4): a Buffer body when any call carries
+    // binary data. Kept `any` so legacy string assertions keep compiling.
+    public lastRequest: any = '';
     public lastConfig: any = null;
 
     constructor(
@@ -27,7 +29,7 @@ export class DummyBatchRepo implements ODataBatchRepository {
 
     send(
         url: string,
-        batchRequest: string,
+        batchRequest: string | Buffer,
         config: any,
         _accept: string,
         _parser: BatchResponseConstructor

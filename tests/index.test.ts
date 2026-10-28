@@ -141,7 +141,7 @@ describe('ODataBatch response-type mapping', () => {
             {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             },
             repo
         );
@@ -165,7 +165,7 @@ describe('ODataBatch response-type mapping', () => {
             {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
                 batchResponseType: 'json',
                 individualResponseType: 'json',
             },
@@ -184,7 +184,7 @@ describe('ODataBatch response-type mapping', () => {
         const batch = new ODataBatch({
             url: 'http://example.com/batch',
             auth: 'user:pass',
-            calls: [{ method: 'GET', url: '/items', data: null, length: 0 } as any],
+            calls: [{ method: 'DELETE', url: '/items', data: null, length: 0 } as any],
         });
 
         // Act & Assert
@@ -196,7 +196,7 @@ describe('ODataBatch response-type mapping', () => {
             {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
                 batchResponseType: 'xml',
             },
             new DummyBatchRepo()
@@ -216,7 +216,7 @@ describe('ODataBatch response-type mapping', () => {
             {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
                 individualResponseType: 'xml',
             },
             repo

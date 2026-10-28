@@ -1,7 +1,7 @@
 # odata-batch
 
-Build and parse **OData V2 `$batch`** requests in TypeScript/JavaScript: turn an
-array of calls into a correct `multipart/mixed` payload, send it over HTTP, and
+Build and parse **OData `$batch`** requests in TypeScript/JavaScript: turn an
+array of calls into a `multipart/mixed` (v2/v4) or JSON (v4.01) payload, send it over HTTP, and
 get each inner response back as a structured object — including per-changeset
 grouping, embedded error detection, and automatic authentication.
 
@@ -94,15 +94,15 @@ const calls: Call[][] = [
         { method: 'POST', url: '.../Orders', data: { id: 1 } },
         { method: 'POST', url: '.../OrderLines', data: { order: 1, sku: 'A' } },
     ],
-    // Changeset 1: an independent operation
-    [{ method: 'GET', url: '.../Orders(1)', data: null }],
+    // Changeset 1: independently update a different order
+    [{ method: 'PATCH', url: '.../Orders(2)', data: { status: 'confirmed' } }],
 ];
 
 const batch = new ODataBatch({ url: '.../$batch', auth: 'user:password', calls });
 
 const responses = await batch.send();
 responses.map((r) => [r.code, r.success, r.changesetIndex]);
-// [['201', true, 0], ['201', true, 0], ['200', true, 1]]
+// [['201', true, 0], ['201', true, 0], ['204', true, 1]]
 ```
 
 `changesetIndex` tells you which group each response came from, so you can map
@@ -299,6 +299,10 @@ parts.
 | `headers` | `Record<string, string>` | — | Extra headers for the batch request itself. Keys and values must not contain line breaks. `Authorization` from here overrides `auth`; `Accept` and `Content-Type` are always derived from the response-type options. |
 | `batchResponseType` | `string` | `'json'` | JSON/XML alias or supported MIME type (see below). Controls call body serialization and inner `Content-Type`: JSON uses `JSON.stringify`; XML writes the payload verbatim. |
 | `individualResponseType` | `string` | `'json'` | JSON/XML alias or supported MIME type (see below). Controls inner response parsing and `Accept`: JSON runs `JSON.parse` (empty body → `null`, unparseable body → raw string); XML returns the raw string. |
+| `timeout` | `number` | unset | Request timeout in milliseconds for the default axios transport. `0` disables the timeout. |
+| `maxContentLength` | `number` | unset | Maximum response size in bytes for the default axios transport. `0` allows only an empty response. This does not limit the outgoing batch size. |
+| `protocolVersion` | `'2.0' \| '4.0' \| '4.01'` | unset | Opt-in version headers; v4 modes also assign missing changeset Content-IDs. Omission preserves the legacy v2 wire format. |
+| `batchFormat` | `'multipart' \| 'json'` | `'multipart'` | JSON batch requires `protocolVersion: '4.01'` and JSON media types. |
 | *(2nd constructor arg)* | `ODataBatchRepository` | axios adapter | Custom HTTP transport. See [Custom HTTP adapter](#custom-http-adapter). |
 
 ### JSON/XML media types
@@ -328,19 +332,20 @@ const batch = new ODataBatch({
 Unsupported types, wildcards, media-type lists, malformed parameters, control
 characters (including tabs and CR/LF), and non-ASCII values throw at construction
 instead of silently selecting XML. Parameters require a MIME type, not an alias
-(`json;odata=verbose` is invalid). The outer request always remains
-`multipart/mixed`; retrieve mode uses only the normalized `Accept` on its GET
+(`json;odata=verbose` is invalid). The outer request remains
+`multipart/mixed` unless `batchFormat: 'json'` is selected; retrieve mode uses only the normalized `Accept` on its GET
 parts, but validates both options.
 
 Each `Call` accepts:
 
 | Field | Type | Description |
 |---|---|---|
-| `method` | `string` | HTTP method (any casing; normalized to uppercase). Must be a valid RFC 9110 HTTP token. |
+| `method` | `string` | HTTP method (any casing; uppercase in multipart, lowercase in JSON batch). Must be a valid RFC 9110 HTTP token. `GET` is rejected inside a changeset: use `retrieve` or a direct `operations` entry. |
 | `url` | `string` | Request URL. Must not contain line breaks. |
-| `data` | `any` | Payload: serialized per `batchResponseType`. |
-| `headers` | `Record<string, string \| number>` | Optional. `Content-Type`/`Accept` here are overridden by the response-type options; every other header passes through verbatim. |
-| `contentId` | `string` | Optional MIME Content-ID; a nonempty HTTP token unique within its changeset. |
+| `data` | `any` | Payload: serialized per `batchResponseType`. A `Buffer` or `Uint8Array` is binary (see below). |
+| `headers` | `Record<string, string \| number>` | Optional. `Content-Type`/`Accept` here are overridden by the response-type options, except a binary body's own `Content-Type` is preserved. JSON batch uses lowercase header names. |
+| `contentId` | `string` | Optional MIME Content-ID / JSON request id; a nonempty HTTP token. Unique within a v2 changeset, or across the entire v4 batch. |
+| `dependsOn` | `string[]` | JSON batch only. Earlier request ids in the same group or earlier standalone requests; dependencies on other changesets must name their atomicity group. No forward, self, or own-group references. |
 
 Each `RetrieveCall` accepts:
 
@@ -348,6 +353,86 @@ Each `RetrieveCall` accepts:
 |---|---|---|
 | `url` | `string` | Request URL. Must not contain line breaks. |
 | `headers` | `Record<string, string \| number>` | Optional. A custom `accept` is replaced by `individualResponseType`; a custom `content-type` is dropped (a GET has no body). Every other header passes through verbatim. |
+
+### Timeouts and response limits
+
+Both limits must be finite, non-negative numbers. Without them, axios's existing
+defaults apply: this library imposes no timeout or response-size limit. Choose
+values appropriate for your service, for example `timeout: 30_000` and
+`maxContentLength: 10 * 1024 * 1024`. Custom repositories receive these values
+in `BatchRequestConfig` and must enforce them themselves.
+
+### Binary request bodies
+
+```ts
+const batch = new ODataBatch({
+    url: 'https://example.com/service/$batch',
+    auth: 'user:password',
+    calls: [{
+        method: 'POST', url: '/Photos',
+        data: Buffer.from([0xff, 0x00, 0x01]),
+        headers: { 'Content-Type': 'image/jpeg' },
+    }],
+});
+```
+
+In multipart batches, bytes are written verbatim and the overall request body
+becomes a `Buffer`. Batches with no binary payload remain strings. Binary data
+requires its own `Content-Type` header; boundary collision guards also scan
+binary bytes. In JSON batch, binary bodies are unpadded base64url strings.
+This feature covers outgoing bodies; it does not add binary response decoding.
+
+### Protocol versions and JSON batch
+
+| Mode | Options | Outer version headers |
+|---|---|---|
+| Legacy v2 multipart | no new options | none added |
+| Explicit v2 multipart | `protocolVersion: '2.0'` | `DataServiceVersion: 2.0`, `MaxDataServiceVersion: 2.0` |
+| v4 multipart | `protocolVersion: '4.0'` | `OData-Version: 4.0`, `OData-MaxVersion: 4.0` |
+| v4.01 multipart | `protocolVersion: '4.01'` | `OData-Version: 4.01`, `OData-MaxVersion: 4.01` |
+| v4.01 JSON batch | `protocolVersion: '4.01', batchFormat: 'json'` | `OData-Version: 4.01`, `OData-MaxVersion: 4.01` |
+
+An explicit caller version header wins case-insensitively. Keep overrides
+consistent with the selected format: a 4.0-only server does not support JSON
+batch. The library does not negotiate or discover server capabilities.
+In v4 modes, omitted Content-IDs are assigned the lowest free positive decimal
+ids across the batch, without mutating caller objects.
+
+```ts
+const batch = new ODataBatch({
+    url: 'https://example.com/service/$batch',
+    auth: 'user:password',
+    protocolVersion: '4.01',
+    batchFormat: 'json',
+    operations: [
+        { url: '/Items' },
+        [
+            { method: 'POST', url: '/Items', contentId: 'create', data: { name: 'new' } },
+            { method: 'POST', url: '$create/Details', dependsOn: ['create'], data: { label: 'detail' } },
+        ],
+    ],
+});
+const groups = await batch.sendGrouped();
+```
+
+The JSON body contains `requests[]`; each changeset becomes an `atomicityGroup`
+named `group1`, `group2`, etc., skipping names that collide with request ids.
+GET entries also receive ids. `dependsOn` is explicit: JSON requests outside
+the same atomicity group are **not** implicitly ordered by their array position.
+`send()` correlates responses by id and returns them in request order;
+`sendGrouped()` uses request layout, including single-member changesets.
+If a group fails, every returned member has `success: false`, even if its
+original HTTP code was 2xx. Grouped output carries the actual failing response.
+Omitted rolled-back siblings of a failed group are allowed; no responses are
+invented for them. Unknown or duplicate ids, or unexplained missing responses,
+reject parsing. In particular, fully omitted later operations with
+`Prefer: continue-on-error=false` are not reconstructed.
+
+The low-level `operationsToJsonBatch`, `JsonBatchResponse`, and
+`createJsonBatchResponseParser` are also exported. See
+[OData JSON Format 4.01, section 19](https://docs.oasis-open.org/odata/odata-json-format/v4.01/odata-json-format-v4.01.html#sec_BatchRequestsandResponses).
+This is a batch transport/serialization library, not an implementation of the
+entire OData query, metadata, authentication, or authorization specification.
 
 ## Authentication
 
@@ -368,7 +453,15 @@ The rule is safe because the base64 alphabet never contains `:`, while decoded
 Basic credentials always do. Caveat: a colon-less **raw** password (rare but
 legal) cannot be distinguished from a token — encode such passwords yourself
 before passing them. To bypass the heuristic entirely, set
-`headers: { Authorization: 'Bearer ...' }` — it overrides `auth`.
+`headers: { Authorization: 'Bearer ...' }` — it overrides `auth`. The key is
+matched case-insensitively (`authorization`, `AUTHORIZATION`, ...) and is sent
+as a single canonical `Authorization` header.
+
+The default axios transport **never follows redirects** (`maxRedirects: 0`):
+following one would replay the `Authorization` header to the redirect target.
+A 3xx answer rejects the promise like any other non-2xx response. If your
+gateway really redirects `$batch`, point `url` at the final endpoint, or
+supply your own transport (see [Custom HTTP adapter](#custom-http-adapter)).
 
 ## Errors and validation
 
@@ -385,12 +478,24 @@ before passing them. To bypass the heuristic entirely, set
 | Invalid HTTP method in `Call` | `throw` before sending: `Call method must be a valid HTTP token` |
 | Payload contains the generated batch or changeset boundary | Boundary is regenerated (up to 10 attempts), then `throw` |
 | Batch endpoint answers non-2xx | Promise **rejects** (transport error; nothing is parsed) |
+| Batch endpoint answers a redirect (3xx) | Promise **rejects**; the redirect is never followed, so credentials are not replayed |
 | Inner response is 4xx/5xx | Parsed normally with `success: false` — the promise still resolves |
 | Truncated or malformed inner response part (missing header separation) | Parsed with `success: false` and raw unparsed part text in `data` — no throw, siblings are preserved |
 | Inner response body is not valid JSON while using `individualResponseType: 'json'` | `data` is the raw payload string for that part — no throw, siblings are preserved |
 | Inner response body is empty (204) while using `individualResponseType: 'json'` | `data` is `null` — no throw |
 | Response body uses LF-only (or mixed) line endings | Normalized to CRLF; parsed normally |
 | Response has no/invalid `content-type` boundary | `throw` with a descriptive message |
+| GET inside any changeset | `throw`: `GET is not allowed inside a changeset; use retrieve or operations` |
+| Invalid `timeout` / `maxContentLength` | `throw`: `<option> must be a non-negative finite number` |
+| Unsupported `protocolVersion` | `throw`: `protocolVersion must be '2.0', '4.0' or '4.01'` |
+| Unsupported `batchFormat` | `throw`: `batchFormat must be 'multipart' or 'json'` |
+| JSON batch with incompatible version/media types | `throw`: `batchFormat 'json' requires protocolVersion '4.01' and JSON media types` |
+| Binary body without its own Content-Type | `throw`: `Binary call data requires its own Content-Type header` |
+| Duplicate explicit v4 Content-ID across groups | `throw`: `Duplicate contentId within the batch: <id>` |
+| Multipart call with `dependsOn` | `throw`: `dependsOn requires batchFormat 'json'` |
+| Invalid JSON dependency (unknown, forward, self, own-group, cross-group member) | `throw`: `dependsOn must reference an earlier request id or atomicity group: <ref>` |
+| Invalid JSON response envelope | `throw`: `Invalid JSON batch response` |
+| Unknown/duplicate/unexplained missing JSON response id | `throw`: `JSON batch response does not match request ids: <id>` |
 
 ## Custom HTTP adapter
 
@@ -411,16 +516,22 @@ import {
 export class ODataBatchFetchRepository implements ODataBatchRepository {
     async send(
         url: string,
-        batchRequest: string,
+        batchRequest: string | Buffer,
         config: BatchRequestConfig,
         accept: string,
         BatchParser: BatchResponseConstructor
     ): Promise<BatchResponseParsed[]> {
+        // This minimal adapter does not implement the optional transport limits.
+        if (config.timeout !== undefined || config.maxContentLength !== undefined) {
+            throw new Error('This adapter does not implement transport limits');
+        }
         const response = await fetch(url, {
             method: 'POST',
             headers: config.headers,
-            body: batchRequest,
+            body: typeof batchRequest === 'string' ? batchRequest : Uint8Array.from(batchRequest),
+            redirect: 'error',
         });
+        if (!response.ok) throw new Error(`Batch endpoint returned ${response.status}`);
 
         // Reuse the bundled parser: give it the response body and headers
         return createBatchResponse(BatchParser, {
@@ -433,7 +544,22 @@ export class ODataBatchFetchRepository implements ODataBatchRepository {
 const batch = new ODataBatch({ url: '.../$batch', auth: 'user:pass', calls }, new ODataBatchFetchRepository());
 ```
 
-The default adapter (`ODataBatchAxiosRepository`) does exactly this with axios.
+The default adapter (`ODataBatchAxiosRepository`) additionally enforces the
+optional limits using axios. To implement `sendGrouped`, accept the optional
+sixth argument `BatchParser` (default `BatchResponse`), construct it with
+`createBatchResponse`, and call its `parseGrouped(layout)` method. JSON batch
+requires the supplied bound parser; do not hardcode `BatchResponse` there.
+
+## Migrating from 3.x (unreleased)
+
+- Move GET entries out of `calls` into `retrieve`, or into direct `operations`
+  entries. GET inside a changeset now throws rather than sending invalid OData.
+- Custom repository request bodies now have type `string | Buffer`. Preserve
+  binary bytes; do not unconditionally convert them to UTF-8 strings.
+- The default transport no longer follows redirects. Set `url` to the final
+  endpoint rather than relying on a redirect.
+- All new format/version/limit options are opt-in; ordinary v2 write batches
+  retain their existing string wire format when the new options are omitted.
 
 ## Migrating from 1.x
 
@@ -455,5 +581,6 @@ Built on the ideas of
 
 ---
 
-<sub>OData V2 is the supported and tested dialect. V3 batches share the MIME
-structure and may work, but are not covered by the test suite.</sub>
+<sub>Local tests cover v2/v4 multipart and v4.01 JSON batching. This is not a
+conformance certification or a claim that every server supports every mode;
+validate interoperability against your target service before deployment.</sub>

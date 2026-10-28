@@ -108,7 +108,7 @@ describe('ODataBatch', () => {
                 calls: [
                     [{ method: 'POST', url: '/api/a', data: { id: 1 } }],
                     [] as any[],
-                    [{ method: 'GET', url: '/api/b', data: null }],
+                    [{ method: 'DELETE', url: '/api/b', data: null }],
                 ] as any[][],
             };
 
@@ -126,7 +126,7 @@ describe('ODataBatch', () => {
                         { method: 'POST', url: '/api/a', data: { id: 1 } },
                         { method: 'POST', url: '/api/a2', data: { id: 2 } },
                     ],
-                    [{ method: 'GET', url: '/api/b', data: null }],
+                    [{ method: 'DELETE', url: '/api/b', data: null }],
                 ],
             };
 
@@ -141,7 +141,7 @@ describe('ODataBatch', () => {
                 auth: 'user:pass',
                 calls: [
                     { method: 'POST', url: '/api/a', data: { id: 1 } },
-                    { method: 'GET', url: '/api/b', data: null },
+                    { method: 'DELETE', url: '/api/b', data: null },
                 ],
             };
 
@@ -154,7 +154,7 @@ describe('ODataBatch', () => {
             const config = {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
 
             // Act
@@ -171,7 +171,7 @@ describe('ODataBatch', () => {
             const config = {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('mock-uuid-boundary');
 
@@ -228,7 +228,7 @@ describe('ODataBatch', () => {
             const config = {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const batch = new ODataBatch(config, dummyRepo);
 
@@ -249,7 +249,7 @@ describe('ODataBatch', () => {
                 url: 'http://example.com/batch',
                 auth: 'basic:pass',
                 headers: { Authorization: 'Bearer token123' },
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const batch = new ODataBatch(config, dummyRepo);
 
@@ -260,13 +260,62 @@ describe('ODataBatch', () => {
             expect(dummyRepo.lastConfig.headers.Authorization).toBe('Bearer token123');
         });
 
+        test.each(['authorization', 'AUTHORIZATION', 'AuthoriZation'])(
+            'header %s takes priority over constructor auth (case-insensitive)',
+            async (key) => {
+                const dummyRepo = new DummyBatchRepo();
+                const batch = new ODataBatch(
+                    {
+                        url: 'http://example.com/batch',
+                        auth: 'basic:pass',
+                        headers: { [key]: 'Bearer token123', 'X-Custom': 'kept' },
+                        calls: [{ method: 'POST', url: '/items', data: {} }],
+                    },
+                    dummyRepo
+                );
+
+                await batch.send();
+
+                // One canonical Authorization entry, the caller's, never a second Basic one
+                const authKeys = Object.keys(dummyRepo.lastConfig.headers).filter(
+                    (k) => k.toLowerCase() === 'authorization'
+                );
+                expect(authKeys).toEqual(['Authorization']);
+                expect(dummyRepo.lastConfig.headers.Authorization).toBe('Bearer token123');
+                expect(dummyRepo.lastConfig.headers['X-Custom']).toBe('kept');
+            }
+        );
+
+        test('an empty lowercase authorization header still falls back to constructor auth', async () => {
+            const dummyRepo = new DummyBatchRepo();
+            const batch = new ODataBatch(
+                {
+                    url: 'http://example.com/batch',
+                    auth: 'user:pass',
+                    headers: { authorization: '' },
+                    calls: [{ method: 'POST', url: '/items', data: {} }],
+                },
+                dummyRepo
+            );
+
+            await batch.send();
+
+            const authKeys = Object.keys(dummyRepo.lastConfig.headers).filter(
+                (k) => k.toLowerCase() === 'authorization'
+            );
+            expect(authKeys).toEqual(['Authorization']);
+            expect(dummyRepo.lastConfig.headers.Authorization).toBe(
+                `Basic ${Buffer.from('user:pass').toString('base64')}`
+            );
+        });
+
         test('includes Accept and Content-Type in config', async () => {
             // Arrange
             const dummyRepo = new DummyBatchRepo();
             const config = {
                 url: 'http://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const batch = new ODataBatch(config, dummyRepo);
 
@@ -286,7 +335,7 @@ describe('ODataBatch', () => {
                 auth: 'user:pass',
                 calls: [
                     [{ method: 'POST', url: '/api/a', data: { id: 1 } }],
-                    [{ method: 'GET', url: '/api/b', data: null }],
+                    [{ method: 'DELETE', url: '/api/b', data: null }],
                 ],
             };
             const batch = new ODataBatch(config, dummyRepo);
@@ -309,7 +358,7 @@ describe('ODataBatch', () => {
                 const config = {
                     url: 'http://example.com/batch',
                     auth: 'user:pass',
-                    calls: [{ method: 'GET', url: '/items', data: null }],
+                    calls: [{ method: 'DELETE', url: '/items', data: null }],
                     retrieve: [{ url: '/items' }],
                 };
 

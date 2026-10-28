@@ -53,7 +53,7 @@ const randomCase = (rng: LCG, value: string): string =>
         .map((ch) => (rng.next() < 0.5 ? ch.toLowerCase() : ch.toUpperCase()))
         .join('');
 
-const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'MERGE'];
+const METHODS = ['PATCH', 'POST', 'PUT', 'DELETE', 'MERGE'];
 const PATHS = ['/A', '/B', '/C', '/D/E', "/F('key-1')"];
 
 const randomCall = (rng: LCG): Call => ({
@@ -181,9 +181,10 @@ describe('BatchResponse properties (seeded random inputs)', () => {
                 // and changeset boundaries, and the mirrored response reuses them
                 const request = requestsToBatch(multi, boundary, JSON_OPTS).body;
                 const batchBoundary = 'batch_' + boundary;
-                const changeSetBoundaries = Array.from(request.matchAll(/boundary=(changeset_[0-9.]+_\d+)\r/g)).map(
-                    (m) => m[1]
-                );
+                expect(typeof request).toBe('string');
+                const changeSetBoundaries = Array.from(
+                    request.toString().matchAll(/boundary=(changeset_[0-9.]+_\d+)\r/g)
+                ).map((m) => m[1]);
                 expect(changeSetBoundaries).toHaveLength(multi.length);
 
                 const lines: string[] = [];

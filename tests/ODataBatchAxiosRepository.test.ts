@@ -47,6 +47,33 @@ describe('ODataBatchAxiosRepository', () => {
         expect(mock.history.post).toHaveLength(1);
     });
 
+    describe('redirects (credential leak defense)', () => {
+        const url = 'http://example.com/batch';
+        const config = { headers: { Authorization: 'Basic dXNlcjpwYXNz' } };
+
+        test('send disables redirect following and keeps caller headers', async () => {
+            mock.onPost(url).reply(200, '', { 'content-type': 'multipart/mixed; boundary=response' });
+            await new ODataBatchAxiosRepository().send(url, 'request', config, 'application/json', BatchResponse);
+            expect(mock.history.post).toHaveLength(1);
+            expect(mock.history.post[0].maxRedirects).toBe(0);
+            expect(mock.history.post[0].headers?.Authorization).toBe('Basic dXNlcjpwYXNz');
+        });
+
+        test('sendGrouped disables redirect following', async () => {
+            mock.onPost(url).reply(200, '', { 'content-type': 'multipart/mixed; boundary=response' });
+            await new ODataBatchAxiosRepository().sendGrouped(url, 'request', config, 'application/json', []);
+            expect(mock.history.post[0].maxRedirects).toBe(0);
+        });
+
+        test('a redirect response is rejected instead of being followed', async () => {
+            mock.onPost(url).reply(302, '', { location: 'http://evil.example/batch' });
+            await expect(
+                new ODataBatchAxiosRepository().send(url, 'request', config, 'application/json', BatchResponse)
+            ).rejects.toThrow('status code 302');
+            expect(mock.history.post).toHaveLength(1);
+        });
+    });
+
     test('grouped send preserves transport rejection without retries', async () => {
         const repo = new ODataBatchAxiosRepository();
         mock.onPost('http://example.com/batch').reply(500, 'failure');

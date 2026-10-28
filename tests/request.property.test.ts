@@ -34,7 +34,7 @@ class LCG {
     }
 }
 
-const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'MERGE'];
+const METHODS = ['PATCH', 'POST', 'PUT', 'DELETE', 'MERGE'];
 const PATHS = ['/A', '/B', '/C', '/D/E', "/F('key-1')"];
 
 const randomCall = (rng: LCG): Call => ({
@@ -290,8 +290,8 @@ describe('requestsToBatch() security / robustness characterizations', () => {
         makeRandomMock(42);
         const calls: Call[][] = [
             [
-                { method: 'GET', url: '/ok', headers: undefined, data: null },
-                { method: 'GET', url: '/bad\nurl', headers: undefined, data: null },
+                { method: 'DELETE', url: '/ok', headers: undefined, data: null },
+                { method: 'DELETE', url: '/bad\nurl', headers: undefined, data: null },
             ],
         ];
 
@@ -321,7 +321,7 @@ describe('requestsToBatch() security / robustness characterizations', () => {
         const calls: Call[][] = [
             [
                 { method: 'POST', url: '/api/a', headers: undefined, data: { pad: '--changeset_42_0--' } },
-                { method: 'GET', url: '/api/b', headers: undefined, data: null },
+                { method: 'DELETE', url: '/api/b', headers: undefined, data: null },
             ],
         ];
 
@@ -446,7 +446,7 @@ describe('requestsToBatch() security / robustness characterizations', () => {
         // 'undefined', which only happens with '+' concatenation), so the xml
         // branch behaves exactly like the json branch here: empty body line
         makeRandomMock(42);
-        const calls: Call[] = [{ method: 'GET', url: '/api/a', headers: undefined, data: undefined }];
+        const calls: Call[] = [{ method: 'DELETE', url: '/api/a', headers: undefined, data: undefined }];
 
         // Act
         const json = requestsToBatch(calls, '884', JSON_OPTS);

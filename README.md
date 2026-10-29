@@ -303,6 +303,9 @@ parts.
 | `maxContentLength` | `number` | unset | Maximum response size in bytes for the default axios transport. `0` allows only an empty response. This does not limit the outgoing batch size. |
 | `protocolVersion` | `'2.0' \| '4.0' \| '4.01'` | unset | Opt-in version headers; v4 modes also assign missing changeset Content-IDs. Omission preserves the legacy v2 wire format. |
 | `batchFormat` | `'multipart' \| 'json'` | `'multipart'` | JSON batch requires `protocolVersion: '4.01'` and JSON media types. |
+| `asyncPolling` | `{ maxPolls?, defaultRetryAfterMs?, maxRetryAfterMs? }` | unset | Opt-in asynchronous batches. See [Asynchronous batches](#asynchronous-batches). |
+| `continueOnError` | `boolean` | unset | JSON batch only: sends `Prefer: odata.continue-on-error`. |
+| `binaryResponses` | `boolean` | `false` | Multipart only: return non-textual response parts as `Buffer`. |
 | *(2nd constructor arg)* | `ODataBatchRepository` | axios adapter | Custom HTTP transport. See [Custom HTTP adapter](#custom-http-adapter). |
 
 ### JSON/XML media types
@@ -380,7 +383,7 @@ In multipart batches, bytes are written verbatim and the overall request body
 becomes a `Buffer`. Batches with no binary payload remain strings. Binary data
 requires its own `Content-Type` header; boundary collision guards also scan
 binary bytes. In JSON batch, binary bodies are unpadded base64url strings.
-This feature covers outgoing bodies; it does not add binary response decoding.
+To receive binary responses, see [Binary responses](#binary-responses).
 
 ### Protocol versions and JSON batch
 
@@ -423,10 +426,56 @@ the same atomicity group are **not** implicitly ordered by their array position.
 `sendGrouped()` uses request layout, including single-member changesets.
 If a group fails, every returned member has `success: false`, even if its
 original HTTP code was 2xx. Grouped output carries the actual failing response.
-Omitted rolled-back siblings of a failed group are allowed; no responses are
-invented for them. Unknown or duplicate ids, or unexplained missing responses,
-reject parsing. In particular, fully omitted later operations with
-`Prefer: continue-on-error=false` are not reconstructed.
+After any failed response, a request the service did not answer (a rolled-back
+group member, or an unprocessed request under `continueOnError: false`) is
+returned as an explicit entry, never a fabricated result:
+`{ code: '', status: '', headers: [], data: null, success: false, omitted: true, contentId }`.
+In grouped output an entirely omitted changeset is a `changeset-error` carrying
+that entry. Unknown or duplicate ids, or missing responses when nothing failed,
+reject parsing.
+
+`continueOnError` (JSON batch only) sends
+`Prefer: odata.continue-on-error=true|false`; a caller `Prefer` header wins.
+
+### Asynchronous batches
+
+```ts
+const batch = new ODataBatch({
+    url: 'https://example.com/service/$batch',
+    auth: 'user:password',
+    calls,
+    asyncPolling: { maxPolls: 30, defaultRetryAfterMs: 1000, maxRetryAfterMs: 30000 },
+});
+```
+
+`asyncPolling` (defaults shown; `{}` uses them) adds `Prefer: respond-async`.
+When the service answers `202 Accepted` with a `Location`, the default axios
+transport polls that status monitor with `GET`, reusing the batch headers and
+waiting `Retry-After` (delay-seconds or HTTP-date, capped at `maxRetryAfterMs`,
+`defaultRetryAfterMs` when absent). A later `202` may move the monitor. The
+final answer is parsed like any batch response; an `application/http` monitor
+answer is unwrapped first, and a wrapped non-2xx status rejects.
+
+Credentials are only ever sent to the batch origin: a `Location` on another
+origin rejects **before any poll**, and redirects stay disabled. Interim
+partial results (a `202` as the last part of a multipart answer) are not
+resumed. Custom repositories receive `config.asyncPolling` and must implement
+polling themselves.
+
+### Binary responses
+
+`binaryResponses: true` (multipart only) asks the transport for raw bytes
+(`responseType: 'arraybuffer'`). Parts whose `Content-Type` is not textual
+(`text/*`, `multipart/*`, JSON, `+json`, XML, `+xml`, `application/http`)
+return `data` as a `Buffer` with the exact bytes; textual parts are decoded as
+UTF-8 and parsed as usual. Payload line breaks are never rewritten in this mode.
+
+### Per-part Content-Type
+
+An inner response that declares a non-JSON `Content-Type` (for example
+`text/plain` or `application/xml`) is returned raw even when
+`individualResponseType` is JSON. JSON and `+json` parts are parsed; parts
+without a `Content-Type` keep following `individualResponseType`.
 
 The low-level `operationsToJsonBatch`, `JsonBatchResponse`, and
 `createJsonBatchResponseParser` are also exported. See
@@ -495,7 +544,14 @@ supply your own transport (see [Custom HTTP adapter](#custom-http-adapter)).
 | Multipart call with `dependsOn` | `throw`: `dependsOn requires batchFormat 'json'` |
 | Invalid JSON dependency (unknown, forward, self, own-group, cross-group member) | `throw`: `dependsOn must reference an earlier request id or atomicity group: <ref>` |
 | Invalid JSON response envelope | `throw`: `Invalid JSON batch response` |
-| Unknown/duplicate/unexplained missing JSON response id | `throw`: `JSON batch response does not match request ids: <id>` |
+| Unknown/duplicate JSON response id, or a missing one when nothing failed | `throw`: `JSON batch response does not match request ids: <id>` |
+| `continueOnError` on a multipart batch | `throw`: `continueOnError requires batchFormat 'json'` |
+| `binaryResponses` on a JSON batch | `throw`: `binaryResponses requires batchFormat 'multipart'` |
+| Invalid `asyncPolling` field | `throw`: `asyncPolling.<field> must be a non-negative finite number` |
+| Async `202` without `Location` | Promise **rejects**: `Async batch response is missing Location` |
+| Async monitor on another origin | Promise **rejects** before polling: `Async monitor must be on the batch origin` |
+| Async batch still running after `maxPolls` | Promise **rejects**: `Async batch did not finish after <n> polls` |
+| Wrapped async result with non-2xx status | Promise **rejects**: `Async batch failed with status <code>` |
 
 ## Custom HTTP adapter
 

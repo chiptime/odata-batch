@@ -393,23 +393,33 @@ export class JsonBatchResponse implements BatchResponseInterface {
         const operationIndex = new Map<string, number>();
         requestIds.forEach((ids, index) => ids.forEach((id) => operationIndex.set(id, index)));
 
-        return expected.flatMap((id) => {
+        // A service may legitimately omit responses only after a failure:
+        // rolled-back siblings of a failed atomicity group (§19.5) and
+        // unprocessed requests under continue-on-error=false (§19.4).
+        // Those become explicit `omitted` entries, never fabricated results.
+        const anyFailure = items.some(({ parsed }) => /^[45][0-9]{2}$/.test(parsed.code));
+
+        return expected.map((id) => {
+            const changesetIndex = operationIndex.get(id);
             const item = byId.get(id);
             if (!item) {
-                const group = requestIds[operationIndex.get(id) as number];
-                // A failure rolls back the entire atomicity group; 424
-                // responses for its other members are optional (§19.5).
-                if (
-                    group.some((member) => {
-                        const sibling = byId.get(member);
-                        return sibling !== undefined && /^[45][0-9]{2}$/.test(sibling.parsed.code);
-                    })
-                ) {
-                    return [];
+                if (!anyFailure) {
+                    throw new Error(`JSON batch response does not match request ids: ${id}`);
                 }
-                throw new Error(`JSON batch response does not match request ids: ${id}`);
+                return {
+                    parsed: {
+                        code: '',
+                        status: '',
+                        headers: [],
+                        data: null,
+                        success: false,
+                        omitted: true as const,
+                        contentId: id,
+                        changesetIndex,
+                    },
+                };
             }
-            return [{ ...item, parsed: { ...item.parsed, changesetIndex: operationIndex.get(id) } }];
+            return { ...item, parsed: { ...item.parsed, changesetIndex } };
         });
     }
 

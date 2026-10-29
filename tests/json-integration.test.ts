@@ -96,4 +96,20 @@ describe('OData 4.01 JSON batch integration', () => {
         expect(repo.lastRequest.toString()).toContain('Content-ID: 1');
         expect(repo.lastConfig.headers['Content-Type']).toMatch(/^multipart\/mixed;/);
     });
+
+    test('continueOnError: false sends the preference and reports unprocessed operations as omitted', async () => {
+        mock.onPost(url).reply((config) => {
+            expect(config.headers?.Prefer).toBe('odata.continue-on-error=false');
+            return [200, { responses: [{ id: '1', status: 404 }] }];
+        });
+        const result = await new ODataBatch({
+            ...options,
+            continueOnError: false,
+            operations: [{ url: '/Missing' }, [write]],
+        } as any).send();
+        expect(result.map(({ contentId, code, omitted }) => ({ contentId, code, omitted }))).toEqual([
+            { contentId: '1', code: '404', omitted: undefined },
+            { contentId: '2', code: '', omitted: true },
+        ]);
+    });
 });

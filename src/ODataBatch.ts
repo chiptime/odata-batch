@@ -7,7 +7,7 @@ import {
     BatchRequestLayout,
     BatchResponseGroup,
 } from './response';
-import { ODataBatchRepository, BatchRequestConfig } from './BatchRepository';
+import { ODataBatchRepository, BatchRequestConfig, AsyncPollingConfig } from './BatchRepository';
 import { ODataBatchAxiosRepository } from './ODataBatchAxiosRepository';
 import { operationsToJsonBatch, createJsonBatchResponseParser } from './jsonBatch';
 
@@ -85,7 +85,23 @@ const ensureProtocolVersionIsValid = (value: unknown): void => {
     }
 };
 
+const ASYNC_POLLING_DEFAULTS: AsyncPollingConfig = { maxPolls: 30, defaultRetryAfterMs: 1000, maxRetryAfterMs: 30000 };
+
+const normalizeAsyncPolling = (value: Partial<AsyncPollingConfig> | undefined): AsyncPollingConfig | undefined => {
+    if (value === undefined) {
+        return undefined;
+    }
+    const merged = { ...ASYNC_POLLING_DEFAULTS, ...value };
+    (Object.keys(ASYNC_POLLING_DEFAULTS) as (keyof AsyncPollingConfig)[]).forEach((field) =>
+        ensureLimitIsValid(merged[field], `asyncPolling.${field}`)
+    );
+    return merged;
+};
+
 export class ODataBatch {
+    private asyncPolling: AsyncPollingConfig | undefined;
+    private continueOnError: boolean | undefined;
+    private binaryResponses: boolean;
     private auth: string;
     private protocolVersion: ProtocolVersion | undefined;
     private limits: Pick<BatchRequestConfig, 'timeout' | 'maxContentLength'>;
@@ -117,6 +133,9 @@ export class ODataBatch {
             maxContentLength,
             protocolVersion,
             batchFormat = 'multipart',
+            asyncPolling,
+            continueOnError,
+            binaryResponses = false,
         }: {
             url: string;
             headers?: Record<string, string>;
@@ -130,6 +149,9 @@ export class ODataBatch {
             maxContentLength?: number;
             protocolVersion?: ProtocolVersion;
             batchFormat?: BatchFormat;
+            asyncPolling?: Partial<AsyncPollingConfig>;
+            continueOnError?: boolean;
+            binaryResponses?: boolean;
         },
         batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
@@ -144,6 +166,15 @@ export class ODataBatch {
             throw new Error("batchFormat must be 'multipart' or 'json'");
         }
         this.batchFormat = batchFormat;
+        if (continueOnError !== undefined && batchFormat !== 'json') {
+            throw new Error("continueOnError requires batchFormat 'json'");
+        }
+        this.continueOnError = continueOnError;
+        this.asyncPolling = normalizeAsyncPolling(asyncPolling);
+        if (binaryResponses === true && batchFormat === 'json') {
+            throw new Error("binaryResponses requires batchFormat 'multipart'");
+        }
+        this.binaryResponses = binaryResponses === true;
         this.limits = {
             ...(timeout !== undefined ? { timeout } : {}),
             ...(maxContentLength !== undefined ? { maxContentLength } : {}),
@@ -259,10 +290,19 @@ export class ODataBatch {
             )
         );
 
+        // Opt-in Prefer preferences (RFC 7240); a caller Prefer header wins
+        const preferences = [
+            ...(this.asyncPolling ? ['respond-async'] : []),
+            ...(this.continueOnError !== undefined ? [`odata.continue-on-error=${this.continueOnError}`] : []),
+        ];
+        const preferHeader: Record<string, string> =
+            preferences.length > 0 && !callerKeys.has('prefer') ? { Prefer: preferences.join(', ') } : {};
+
         return {
             headers: {
                 ...rest,
                 ...versionHeaders,
+                ...preferHeader,
                 Authorization: authorization || `Basic ${this.encodeBasicAuth(this.auth)}`,
                 Accept: this.requestResponseType.accept,
                 'Content-Type':
@@ -271,6 +311,8 @@ export class ODataBatch {
                         : 'multipart/mixed; boundary=batch_' + this.boundary,
             },
             ...this.limits,
+            ...(this.binaryResponses ? { responseType: 'arraybuffer' as const } : {}),
+            ...(this.asyncPolling ? { asyncPolling: this.asyncPolling } : {}),
         };
     }
 

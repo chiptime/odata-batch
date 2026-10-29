@@ -5,6 +5,16 @@ export interface BatchRequestConfig {
     // Present only when the caller sets them on ODataBatch
     timeout?: number;
     maxContentLength?: number;
+    // Present only when ODataBatch opts into binary response parsing
+    responseType?: 'arraybuffer';
+    // Present only when ODataBatch opts into async (respond-async) batches
+    asyncPolling?: AsyncPollingConfig;
+}
+
+export interface AsyncPollingConfig {
+    maxPolls: number;
+    defaultRetryAfterMs: number;
+    maxRetryAfterMs: number;
 }
 
 export interface ODataBatchRepository {

@@ -34,8 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### JSON batch response behavior
 
-- Singleton changesets use request layout even when responses omit `atomicityGroup`. Failed groups mark all returned members unsuccessful, preserve the actual failing response, and allow omitted rolled-back siblings without synthesizing results.
-- Invalid envelopes, duplicate/unknown response ids, and unexplained missing responses reject parsing. Fully omitted operations after `Prefer: continue-on-error=false` are not reconstructed.
+- Singleton changesets use request layout even when responses omit `atomicityGroup`. Failed groups mark all returned members unsuccessful and preserve the actual failing response.
+- After any failure, requests the service did not answer (rolled-back group members, or unprocessed requests under `continue-on-error=false`) are returned as explicit `{ omitted: true, success: false, code: '' }` entries, never fabricated results. Invalid envelopes, duplicate/unknown ids, and missing responses when nothing failed reject parsing.
+
+### Added (batch gaps)
+
+- `asyncPolling`: opt-in asynchronous batches (`Prefer: respond-async`, `202` + `Location` status monitor polling with `Retry-After`, capped and bounded by `maxPolls`). Monitors on another origin are rejected before any request, so credentials never leave the batch origin; `application/http` monitor answers are unwrapped byte-exactly.
+- `continueOnError` (JSON batch): sends `Prefer: odata.continue-on-error`.
+- `binaryResponses` (multipart): non-textual response parts return their exact bytes as a `Buffer`.
+- Inner responses declaring a non-JSON `Content-Type` are no longer `JSON.parse`d under a JSON accept; undeclared parts keep following the accept.
+- `BatchResponseParsed.omitted`, `BatchRequestConfig.responseType` and `BatchRequestConfig.asyncPolling` (custom repositories may honor them). `ODataBatchAxiosRepository` accepts an optional `{ sleep }` for testable waits.
 
 ## [3.1.0] - 2026-10-22
 

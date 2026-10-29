@@ -7,6 +7,8 @@ export interface BatchResponseParsed {
     success: boolean;
     changesetIndex?: number;
     contentId?: string;
+    // JSON batch only: the service omitted this response (continue-on-error=false)
+    omitted?: true;
 }
 
 export type BatchRequestPart = { kind: 'retrieve' } | { kind: 'changeset'; operationCount: number };
@@ -23,13 +25,19 @@ export interface BatchResponseInterface {
     parseGrouped?(layout?: BatchRequestLayout): BatchResponseGroup[];
 }
 
+// A Buffer/ArrayBuffer body arrives when ODataBatch opts into binaryResponses
+export type BatchResponseBody = string | Buffer | ArrayBuffer;
+
 export interface BatchResponseConstructor {
-    new (OResponse: { data: string; headers: Record<string, string> }, accept: string): BatchResponseInterface;
+    new (
+        OResponse: { data: BatchResponseBody; headers: Record<string, string> },
+        accept: string
+    ): BatchResponseInterface;
 }
 
 export function createBatchResponse(
     ctor: BatchResponseConstructor,
-    OResponse: { data: string; headers: Record<string, string> },
+    OResponse: { data: BatchResponseBody; headers: Record<string, string> },
     accept: string
 ): BatchResponseInterface {
     return new ctor(OResponse, accept);
@@ -49,20 +57,38 @@ const extractBoundary = (headerOrPart: string): string | undefined => {
     return (match[1] ?? match[2]).trim();
 };
 
+// Media types whose payload is text: decoded as UTF-8 and parsed as before.
+// Anything else in a binary response is handed back as exact bytes.
+const isTextualMediaType = (mediaType: string): boolean =>
+    mediaType.startsWith('text/') ||
+    mediaType.startsWith('multipart/') ||
+    mediaType === 'application/json' ||
+    mediaType.endsWith('+json') ||
+    mediaType === 'application/xml' ||
+    mediaType.endsWith('+xml') ||
+    mediaType === 'application/http';
+
+const mediaTypeOf = (contentType: string | undefined): string | undefined =>
+    contentType === undefined ? undefined : contentType.split(';')[0].trim().toLowerCase();
+
 export class BatchResponse implements BatchResponseInterface {
     private boundary: string;
     private accept: string;
     private rawBody: string;
+    // Binary mode: rawBody is a byte-preserving latin1 view, framing never
+    // rewrites line breaks inside payloads, and payloads are decoded per part
+    private binary: boolean;
     response: BatchResponseParsed[];
 
-    constructor({ data, headers }: { data: string; headers: Record<string, string> }, accept: string) {
+    constructor({ data, headers }: { data: BatchResponseBody; headers: Record<string, string> }, accept: string) {
         this.accept = accept;
         this.ensureHasAccept();
 
         this.boundary = this.getBoundary(headers);
-        this.rawBody = data;
+        this.binary = typeof data !== 'string';
+        this.rawBody = this.binary ? Buffer.from(data as ArrayBuffer).toString('latin1') : (data as string);
 
-        this.response = this.parseBatch(data);
+        this.response = this.parseBatch(this.rawBody);
     }
 
     get groupedResponse(): BatchResponseGroup[] {
@@ -72,7 +98,10 @@ export class BatchResponse implements BatchResponseInterface {
     // Grouping is opt-in and strict. The flat parser above retains its legacy
     // permissive behavior; raw HTTP parts are ambiguous without request layout.
     parseGrouped(layout?: BatchRequestLayout): BatchResponseGroup[] {
-        const parts = this.splitGroupedMultipart(this.rawBody.replace(/\r?\n/g, '\r\n'), this.boundary);
+        const parts = this.splitGroupedMultipart(
+            this.binary ? this.rawBody : this.rawBody.replace(/\r?\n/g, '\r\n'),
+            this.boundary
+        );
         if (layout) {
             if (!Array.isArray(layout) || layout.length !== parts.length) {
                 throw new Error('Grouped response part count does not match request layout');
@@ -127,13 +156,14 @@ export class BatchResponse implements BatchResponseInterface {
 
     private readGroupedMime(part: string): { contentType: string; mediaType: string; body: string } {
         const trimmed = part.trimStart();
-        const separator = trimmed.indexOf('\r\n\r\n');
-        if (separator === -1) {
+        const blankLine = /\r?\n\r?\n/.exec(trimmed);
+        if (!blankLine) {
             throw new Error('Grouped response part is missing MIME header separation');
         }
+        const separator = blankLine.index;
         const contentType = trimmed
             .slice(0, separator)
-            .split('\r\n')
+            .split(/\r?\n/)
             .map((line) => this.parseHeaderLine(line))
             .find(({ key }) => key.toLowerCase() === 'content-type')?.value;
         if (!contentType) {
@@ -142,7 +172,7 @@ export class BatchResponse implements BatchResponseInterface {
         return {
             contentType,
             mediaType: contentType.split(';')[0].trim().toLowerCase(),
-            body: trimmed.slice(separator + 4),
+            body: trimmed.slice(separator + blankLine[0].length),
         };
     }
 
@@ -150,7 +180,7 @@ export class BatchResponse implements BatchResponseInterface {
         const mime = this.readGroupedMime(part);
         if (
             mime.mediaType !== 'application/http' ||
-            !/^HTTP\/1\.[01] [0-9]{3}(?: [^\r\n]*)?$/.test(mime.body.split('\r\n')[0])
+            !/^HTTP\/1\.[01] [0-9]{3}(?: [^\r\n]*)?$/.test(mime.body.split(/\r?\n/)[0])
         ) {
             throw new Error('Grouped response expected an application/http response with a valid status line');
         }
@@ -197,6 +227,10 @@ export class BatchResponse implements BatchResponseInterface {
     }
 
     parseResponse(part: string): BatchResponseParsed {
+        if (this.binary) {
+            return this.parseBinaryResponse(part);
+        }
+
         // Split into part headers, status+response headers and payload. Only
         // the first two blank-line separators are structural: everything
         // after them is payload, even when the payload itself contains
@@ -242,7 +276,8 @@ export class BatchResponse implements BatchResponseInterface {
             .join('\r\n\r\n')
             .replace(/(?:\r\n)+$/, '');
 
-        const data = this.parseData(payload);
+        const contentType = headers.find(({ key }) => key.toLowerCase() === 'content-type')?.value;
+        const data = this.parseData(payload, contentType);
 
         return {
             code,
@@ -273,11 +308,21 @@ export class BatchResponse implements BatchResponseInterface {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed payload is caller-defined
-    parseData(sData: string | undefined): any {
+    parseData(sData: string | undefined, contentType?: string): any {
         // A 204 No Content part can end right after its status line, leaving
         // no payload segment at all: treat it as an empty payload
         const payload = sData ?? '';
 
+        // A part that declares a non-JSON media type is never JSON-parsed,
+        // whatever the batch-level accept says; undeclared parts follow accept
+        const declared = mediaTypeOf(contentType);
+        const declaresJson = declared === 'application/json' || declared?.endsWith('+json');
+        if (declared !== undefined && declared !== '' && !declaresJson) {
+            return payload;
+        }
+
+        // A declared JSON part never widens a non-JSON accept: the caller
+        // asked for raw text, so only the accept enables JSON parsing
         if (this.acceptsJson()) {
             // Empty or whitespace-only payloads carry no JSON document
             // (204 No Content): yield null instead of throwing
@@ -304,10 +349,52 @@ export class BatchResponse implements BatchResponseInterface {
         return this.accept.split(';')[0].trim().toLowerCase() === 'application/json';
     }
 
+    // Binary mode counterpart of parseResponse: only the MIME and HTTP header
+    // blocks are line-normalized; the payload bytes are kept exactly, minus
+    // the single line break that belongs to the next multipart delimiter.
+    private parseBinaryResponse(part: string): BatchResponseParsed {
+        const blank = /\r?\n\r?\n/g;
+        const body = part.replace(/^\r?\n/, '');
+        const first = blank.exec(body);
+        if (!first) {
+            return { code: '', status: '', headers: [], data: body.replace(/\r?\n$/, ''), success: false };
+        }
+        const mimeHead = body.slice(0, first.index);
+        const second = blank.exec(body);
+        const httpHead = body.slice(first.index + first[0].length, second ? second.index : undefined);
+        const payload = second ? body.slice(second.index + second[0].length).replace(/\r?\n$/, '') : '';
+
+        const contentId = mimeHead
+            .split(/\r?\n/)
+            .map((line) => this.parseHeaderLine(line))
+            .find(({ key }) => key.toLowerCase() === 'content-id')?.value;
+        const [statusLine, ...headerLines] = httpHead.replace(/\r?\n$/, '').split(/\r?\n/);
+        const status = /^HTTP\/1\.[01] ([0-9]{3})(?: (.*))?$/.exec(statusLine);
+        const headers = headerLines.map((line) => this.parseHeaderLine(line));
+        const contentType = headers.find(({ key }) => key.toLowerCase() === 'content-type')?.value;
+        const declared = mediaTypeOf(contentType);
+        const bytes = Buffer.from(payload, 'latin1');
+        const data =
+            declared !== undefined && declared !== '' && !isTextualMediaType(declared)
+                ? bytes
+                : this.parseData(bytes.toString('utf8'), contentType);
+        const code = status ? status[1] : '';
+
+        return {
+            code,
+            status: status?.[2] ?? '',
+            headers,
+            data,
+            success: status !== null && code[0] !== '4' && code[0] !== '5',
+            ...(contentId ? { contentId } : {}),
+        };
+    }
+
     parseBatch(body: string): BatchResponseParsed[] {
         // The framing below is CRLF-based; tolerate LF-only or mixed line
-        // endings by normalizing every line break to CRLF first
-        const normalizedBody = body.replace(/\r?\n/g, '\r\n');
+        // endings by normalizing every line break to CRLF first. Binary
+        // bodies are never normalized: that would rewrite payload bytes.
+        const normalizedBody = this.binary ? body : body.replace(/\r?\n/g, '\r\n');
 
         // Split the batch result into its associated parts using anchored delimiters
         const batchParts = this.splitMultipart(normalizedBody, this.boundary);

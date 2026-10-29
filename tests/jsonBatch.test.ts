@@ -358,10 +358,70 @@ describe('JsonBatchResponse (S6 response parsing)', () => {
         ).toThrow('JSON batch response does not match request ids: 1');
     });
 
-    test('a failed group can omit rolled-back siblings without inventing responses', () => {
+    test('a rolled-back sibling omitted by the service is reported as an explicit omitted entry', () => {
         const parsed = responseOf([{ id: '2', status: 409 }], [['1', '2']]);
-        expect(parsed.response).toEqual([expect.objectContaining({ contentId: '2', code: '409', changesetIndex: 0 })]);
-        expect(parsed.parseGrouped([{ kind: 'changeset', operationCount: 2 }])[0].kind).toBe('changeset-error');
+        expect(parsed.response).toEqual([
+            {
+                code: '',
+                status: '',
+                headers: [],
+                data: null,
+                success: false,
+                omitted: true,
+                contentId: '1',
+                changesetIndex: 0,
+            },
+            expect.objectContaining({ contentId: '2', code: '409', changesetIndex: 0 }),
+        ]);
+        expect(parsed.parseGrouped([{ kind: 'changeset', operationCount: 2 }])).toEqual([
+            { kind: 'changeset-error', partIndex: 0, error: expect.objectContaining({ code: '409' }) },
+        ]);
+    });
+
+    test('continue-on-error=false: unprocessed later operations become omitted entries (§19.4)', () => {
+        const parsed = responseOf(
+            [
+                { id: '1', status: 200 },
+                { id: '2', status: 500 },
+            ],
+            [['1'], ['2', '3'], ['4']]
+        );
+        expect(
+            parsed.response.map(({ contentId, code, success, omitted, changesetIndex }) => ({
+                contentId,
+                code,
+                success,
+                omitted,
+                changesetIndex,
+            }))
+        ).toEqual([
+            { contentId: '1', code: '200', success: true, omitted: undefined, changesetIndex: 0 },
+            { contentId: '2', code: '500', success: false, omitted: undefined, changesetIndex: 1 },
+            { contentId: '3', code: '', success: false, omitted: true, changesetIndex: 1 },
+            { contentId: '4', code: '', success: false, omitted: true, changesetIndex: 2 },
+        ]);
+        expect(
+            parsed.parseGrouped([{ kind: 'retrieve' }, { kind: 'changeset', operationCount: 2 }, { kind: 'retrieve' }])
+        ).toEqual([
+            { kind: 'retrieve', partIndex: 0, response: expect.objectContaining({ contentId: '1' }) },
+            { kind: 'changeset-error', partIndex: 1, error: expect.objectContaining({ contentId: '2', code: '500' }) },
+            { kind: 'retrieve', partIndex: 2, response: expect.objectContaining({ contentId: '4', omitted: true }) },
+        ]);
+    });
+
+    test('a later changeset that never ran is a changeset-error carrying its omitted entry', () => {
+        const parsed = responseOf([{ id: '1', status: 400 }], [['1'], ['2', '3']]);
+        expect(parsed.parseGrouped([{ kind: 'retrieve' }, { kind: 'changeset', operationCount: 2 }])[1]).toEqual({
+            kind: 'changeset-error',
+            partIndex: 1,
+            error: expect.objectContaining({ contentId: '2', omitted: true }),
+        });
+    });
+
+    test('missing ids without any failed response still reject', () => {
+        expect(() => responseOf([{ id: '1', status: 200 }], [['1'], ['2']])).toThrow(
+            'JSON batch response does not match request ids: 2'
+        );
     });
 
     test('a failed atomicity group never reports its rolled-back 2xx siblings as successful', () => {

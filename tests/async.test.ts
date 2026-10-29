@@ -6,8 +6,8 @@ import { ODataBatch } from '../src/ODataBatch';
 import { ODataBatchAxiosRepository } from '../src/ODataBatchAxiosRepository';
 import { BatchResponse, BatchResponseParsed } from '../src/response';
 
-const url = 'http://example.com/batch';
-const monitor = 'http://example.com/monitor';
+const url = 'https://example.com/batch';
+const monitor = 'https://example.com/monitor';
 const authHeaders = { Authorization: 'Basic dXNlcjpwYXNz' };
 const polling = { maxPolls: 10, defaultRetryAfterMs: 777, maxRetryAfterMs: 30000 };
 
@@ -190,8 +190,8 @@ describe('ODataBatchAxiosRepository async polling (S1)', () => {
 
     describe('Location handling', () => {
         test('resolves a relative Location against the batch url', async () => {
-            const svcUrl = 'http://example.com/svc/$batch';
-            const resolved = 'http://example.com/svc/monitor/42';
+            const svcUrl = 'https://example.com/svc/$batch';
+            const resolved = 'https://example.com/svc/monitor/42';
             mock.onPost(svcUrl).reply(202, '', { location: 'monitor/42', 'retry-after': '0' });
             mock.onGet(resolved).reply(200, batchBody('resp'), batchHeaders);
 
@@ -276,7 +276,7 @@ describe('ODataBatchAxiosRepository async polling (S1)', () => {
 
     describe('monitor edge cases', () => {
         test('a later 202 may move the monitor; the new Location is followed', async () => {
-            const moved = 'http://example.com/monitor-2';
+            const moved = 'https://example.com/monitor-2';
             mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
             mock.onGet(monitor).reply(202, '', { location: moved, 'retry-after': '0' });
             mock.onGet(moved).reply(200, batchBody('resp'), batchHeaders);
@@ -353,6 +353,160 @@ describe('ODataBatchAxiosRepository async polling (S1)', () => {
                     FlatOnly as any
                 )
             ).rejects.toThrow('Parser does not support grouped responses');
+        });
+    });
+
+    describe('interim results (OData 4.01 §11.7.7.6)', () => {
+        const monitor2 = 'https://example.com/monitor-2';
+        const okPart = (payload: string) =>
+            [
+                '--resp',
+                'Content-Type: application/http',
+                '',
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                '',
+                payload,
+            ].join('\r\n');
+        const acceptedPart = (location?: string, retryAfter = '4') =>
+            [
+                '--resp',
+                'Content-Type: application/http',
+                '',
+                'HTTP/1.1 202 Accepted',
+                ...(location ? [`Location: ${location}`] : []),
+                `Retry-After: ${retryAfter}`,
+                '',
+                '',
+            ].join('\r\n');
+        const interim = (location?: string) => `${okPart('{"step":1}')}\r\n${acceptedPart(location)}--resp--`;
+
+        test('keeps interim parts and continues at the 202 part Location', async () => {
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, wrappedBody(interim(monitor2)), { 'content-type': 'application/http' });
+            mock.onGet(monitor2).reply(200, `${okPart('{"step":2}')}\r\n--resp--`, batchHeaders);
+
+            const result = await repo().send(url, 'request', config(), 'application/json', BatchResponse);
+
+            expect(result.map((r) => r.data)).toEqual([{ step: 1 }, { step: 2 }]);
+            expect(result.map((r) => r.changesetIndex)).toEqual([0, 1]);
+            expect(mock.history.get.map((r) => r.url)).toEqual([monitor, monitor2]);
+            expect(sleeps).toEqual([0, 4000]);
+        });
+
+        test('a direct multipart interim answer is resumed too, and grouping sees every part', async () => {
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, interim(monitor2), batchHeaders);
+            mock.onGet(monitor2).reply(200, `${okPart('{"step":2}')}\r\n--resp--`, batchHeaders);
+
+            const groups = await repo().sendGrouped(url, 'request', config(), 'application/json', [
+                { kind: 'retrieve' },
+                { kind: 'retrieve' },
+            ]);
+
+            expect(groups.map((g) => (g as any).response.data)).toEqual([{ step: 1 }, { step: 2 }]);
+        });
+
+        test('an interim Location on another origin is rejected before polling it', async () => {
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, interim('https://evil.example/monitor'), batchHeaders);
+
+            await expect(repo().send(url, 'request', config(), 'application/json', BatchResponse)).rejects.toThrow(
+                'Async monitor must be on the batch origin'
+            );
+            expect(mock.history.get).toHaveLength(1);
+        });
+
+        test('interim resumption shares the maxPolls budget', async () => {
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, interim(monitor), batchHeaders);
+
+            await expect(
+                repo().send(
+                    url,
+                    'request',
+                    { headers: {}, asyncPolling: { maxPolls: 3, defaultRetryAfterMs: 0, maxRetryAfterMs: 0 } },
+                    'application/json',
+                    BatchResponse
+                )
+            ).rejects.toThrow('Async batch did not finish after 3 polls');
+            expect(mock.history.get).toHaveLength(3);
+        });
+
+        test('a final 202 part without Location is an ordinary response, not a resumption point', async () => {
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, interim(undefined), batchHeaders);
+
+            const result = await repo().send(url, 'request', config(), 'application/json', BatchResponse);
+
+            expect(result.map((r) => r.code)).toEqual(['200', '202']);
+            expect(mock.history.get).toHaveLength(1);
+        });
+
+        test('a non-multipart final monitor answer is passed through untouched', async () => {
+            const repoWithParser = repo();
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, '{"responses":[]}', { 'content-type': 'application/json' });
+            const captured: { data?: unknown } = {};
+            class CapturingParser {
+                response: BatchResponseParsed[] = [];
+                constructor(OResponse: { data: unknown }) {
+                    captured.data = OResponse.data;
+                }
+            }
+            await repoWithParser.send(url, 'request', config(), 'application/json', CapturingParser as any);
+            expect(captured.data).toEqual({ responses: [] });
+        });
+
+        test('a last part that is a changeset is never a resumption point', async () => {
+            const changesetLast = [
+                okPart('{"step":1}'),
+                '--resp',
+                'Content-Type: multipart/mixed; boundary=cs',
+                '',
+                '--cs',
+                'Content-Type: application/http',
+                '',
+                'HTTP/1.1 202 Accepted',
+                'Location: https://example.com/monitor-2',
+                '',
+                '',
+                '--cs--',
+                '--resp--',
+            ].join('\r\n');
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, changesetLast, batchHeaders);
+
+            const result = await repo().send(url, 'request', config(), 'application/json', BatchResponse);
+
+            expect(result.map((r) => r.code)).toEqual(['200', '202']);
+            expect(mock.history.get).toHaveLength(1);
+        });
+
+        test('binary interim parts are merged byte-exactly', async () => {
+            const png = Buffer.from([0x89, 0x0d, 0x0a, 0x00, 0xff]);
+            const binaryPart = Buffer.concat([
+                Buffer.from(
+                    '--resp\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n',
+                    'latin1'
+                ),
+                png,
+                Buffer.from(`\r\n${acceptedPart(monitor2, '0')}--resp--`, 'latin1'),
+            ]);
+            mock.onPost(url).reply(202, '', { location: monitor, 'retry-after': '0' });
+            mock.onGet(monitor).reply(200, binaryPart, batchHeaders);
+            mock.onGet(monitor2).reply(200, Buffer.from(`${okPart('{"step":2}')}\r\n--resp--`, 'latin1'), batchHeaders);
+
+            const result = await repo().send(
+                url,
+                'request',
+                config({ responseType: 'arraybuffer' }),
+                'application/json',
+                BatchResponse
+            );
+
+            expect((result[0].data as Buffer).equals(png)).toBe(true);
+            expect(result[1].data).toEqual({ step: 2 });
         });
     });
 

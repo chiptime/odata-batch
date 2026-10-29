@@ -85,6 +85,30 @@ const ensureProtocolVersionIsValid = (value: unknown): void => {
     }
 };
 
+// Every batch carries Authorization. Over plain http:// that header travels
+// in clear text, so it is refused unless the host is loopback or the caller
+// opts out explicitly. Relative urls (custom transports) cannot be judged.
+const isLoopbackHost = (hostname: string): boolean =>
+    hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(hostname);
+
+const ensureTransportIsSecure = (url: string, allowInsecureHttp: unknown): void => {
+    if (allowInsecureHttp !== undefined && typeof allowInsecureHttp !== 'boolean') {
+        throw new Error('allowInsecureHttp must be a boolean');
+    }
+    if (allowInsecureHttp === true) {
+        return;
+    }
+    let parsed: URL;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return;
+    }
+    if (parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) {
+        throw new Error('Refusing to send credentials over http://; use https:// or set allowInsecureHttp: true');
+    }
+};
+
 const ASYNC_POLLING_DEFAULTS: AsyncPollingConfig = { maxPolls: 30, defaultRetryAfterMs: 1000, maxRetryAfterMs: 30000 };
 
 const normalizeAsyncPolling = (value: Partial<AsyncPollingConfig> | undefined): AsyncPollingConfig | undefined => {
@@ -136,6 +160,7 @@ export class ODataBatch {
             asyncPolling,
             continueOnError,
             binaryResponses = false,
+            allowInsecureHttp,
         }: {
             url: string;
             headers?: Record<string, string>;
@@ -152,11 +177,13 @@ export class ODataBatch {
             asyncPolling?: Partial<AsyncPollingConfig>;
             continueOnError?: boolean;
             binaryResponses?: boolean;
+            allowInsecureHttp?: boolean;
         },
         batchRepository: ODataBatchRepository = new ODataBatchAxiosRepository()
     ) {
         this.ensureSingleMode(calls, retrieve, operations);
         ensureAuthIsSafe(auth);
+        ensureTransportIsSecure(url, allowInsecureHttp);
         ensureHeadersAreSafe(headers);
         ensureLimitIsValid(timeout, 'timeout');
         ensureLimitIsValid(maxContentLength, 'maxContentLength');

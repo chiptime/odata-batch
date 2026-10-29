@@ -5,7 +5,7 @@ import { ODataBatchAxiosRepository } from '../src/ODataBatchAxiosRepository';
 import { DummyBatchRepo } from './helpers';
 
 const base = {
-    url: 'http://example.com/batch',
+    url: 'https://example.com/batch',
     auth: 'user:pass',
     calls: [{ method: 'POST', url: '/Items', data: { a: 1 } }],
 };

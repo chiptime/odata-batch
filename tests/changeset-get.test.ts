@@ -24,7 +24,7 @@ describe('GET inside changesets is rejected (S3, OData v2 batch rules)', () => {
         expect(
             () =>
                 new ODataBatch(
-                    { url: 'http://x/batch', auth: 'a:b', calls: [{ method: 'GET', url: '/Items', data: null }] },
+                    { url: 'https://x/batch', auth: 'a:b', calls: [{ method: 'GET', url: '/Items', data: null }] },
                     new DummyBatchRepo()
                 )
         ).toThrow(MESSAGE);

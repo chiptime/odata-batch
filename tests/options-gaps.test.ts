@@ -1,7 +1,7 @@
 import { ODataBatch } from '../src/ODataBatch';
 import { DummyBatchRepo } from './helpers';
 
-const base = { url: 'http://example.com/batch', auth: 'user:pass', calls: [{ method: 'POST', url: '/A', data: {} }] };
+const base = { url: 'https://example.com/batch', auth: 'user:pass', calls: [{ method: 'POST', url: '/A', data: {} }] };
 const json = { protocolVersion: '4.01', batchFormat: 'json' };
 
 const configOf = async (options: Record<string, unknown>) => {

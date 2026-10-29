@@ -3,7 +3,7 @@ import MockAdapter from 'axios-mock-adapter';
 import { ODataBatch } from '../src/ODataBatch';
 import { DummyBatchRepo } from './helpers';
 
-const url = 'http://example.com/batch';
+const url = 'https://example.com/batch';
 const options = { url, auth: 'user:pass', protocolVersion: '4.01', batchFormat: 'json' };
 const write = { method: 'POST', url: '/Items', data: { name: 'new' } };
 

@@ -32,11 +32,11 @@ describe('ODataBatchAxiosRepository', () => {
             '{}',
             '--response--',
         ].join('\r\n');
-        mock.onPost('http://example.com/batch').reply(200, body, {
+        mock.onPost('https://example.com/batch').reply(200, body, {
             'content-type': 'multipart/mixed; boundary=response',
         });
         const result = await (repo as any).sendGrouped(
-            'http://example.com/batch',
+            'https://example.com/batch',
             'request',
             { headers: {} },
             'application/json',
@@ -48,7 +48,7 @@ describe('ODataBatchAxiosRepository', () => {
     });
 
     describe('redirects (credential leak defense)', () => {
-        const url = 'http://example.com/batch';
+        const url = 'https://example.com/batch';
         const config = { headers: { Authorization: 'Basic dXNlcjpwYXNz' } };
 
         test('send disables redirect following and keeps caller headers', async () => {
@@ -76,9 +76,9 @@ describe('ODataBatchAxiosRepository', () => {
 
     test('grouped send preserves transport rejection without retries', async () => {
         const repo = new ODataBatchAxiosRepository();
-        mock.onPost('http://example.com/batch').reply(500, 'failure');
+        mock.onPost('https://example.com/batch').reply(500, 'failure');
         await expect(
-            (repo as any).sendGrouped('http://example.com/batch', 'request', { headers: {} }, 'application/json', [
+            (repo as any).sendGrouped('https://example.com/batch', 'request', { headers: {} }, 'application/json', [
                 { kind: 'retrieve' },
             ])
         ).rejects.toThrow();
@@ -88,7 +88,7 @@ describe('ODataBatchAxiosRepository', () => {
     describe('send()', () => {
         test('mocked POST returns parsed response', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {
@@ -140,7 +140,7 @@ Accept: application/json
 
         test('passes request body and headers correctly', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {
@@ -170,7 +170,7 @@ Accept: application/json
 
         test('error passthrough for network errors', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {
@@ -188,7 +188,7 @@ Accept: application/json
 
         test('error passthrough for 5xx responses', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {

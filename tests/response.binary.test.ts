@@ -99,7 +99,7 @@ describe('binary responses (S3)', () => {
         try {
             mock.onPost().reply(200, batch(part('image/png', PNG)), HEADERS);
             const result = await new ODataBatch({
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'u:p',
                 binaryResponses: true,
                 retrieve: [{ url: '/Photo/$value' }],

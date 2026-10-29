@@ -33,7 +33,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
 
     test('sendGrouped posts once and preserves a collapsed failure followed by a successful changeset', async () => {
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             individualResponseType: 'application/json;odata=verbose',
             calls: [
@@ -41,7 +41,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
                 [1, 2].map((id) => ({ method: 'POST', url: '/Lines', data: {}, contentId: String(id) })),
             ],
         });
-        mock.onPost('http://sap.example.com/batch').reply(
+        mock.onPost('https://sap.example.com/batch').reply(
             200,
             wire(
                 '--response',
@@ -91,7 +91,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
 
     test('sendGrouped identifies retrieve errors and rejects malformed counts after only one POST', async () => {
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             retrieve: [{ url: '/Items' }],
         });
@@ -104,11 +104,11 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
             '{}',
             '--response--'
         );
-        mock.onPost('http://sap.example.com/batch').replyOnce(200, response, {
+        mock.onPost('https://sap.example.com/batch').replyOnce(200, response, {
             'content-type': 'multipart/mixed; boundary=response',
         });
         expect((await (batch as any).sendGrouped())[0].kind).toBe('retrieve');
-        mock.onPost('http://sap.example.com/batch').replyOnce(200, '--response--', {
+        mock.onPost('https://sap.example.com/batch').replyOnce(200, '--response--', {
             'content-type': 'multipart/mixed; boundary=response',
         });
         await expect((batch as any).sendGrouped()).rejects.toThrow(/Grouped response/);
@@ -117,7 +117,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
 
     test('Content-ID and dependent URLs survive the full mocked pipeline without inference', async () => {
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             calls: [
                 [
@@ -127,7 +127,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
                 ],
             ],
         });
-        mock.onPost('http://sap.example.com/batch').reply(
+        mock.onPost('https://sap.example.com/batch').reply(
             200,
             wire(
                 '--response',
@@ -174,7 +174,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
             expect(
                 () =>
                     new ODataBatch({
-                        url: 'http://sap.example.com/batch',
+                        url: 'https://sap.example.com/batch',
                         auth: 'user:pass',
                         calls: [
                             { method: 'POST', url: '/Items', data: {}, contentId: '1' },
@@ -193,7 +193,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
         'parameterized %s reaches axios and controls response parsing',
         async (value, expected, data, serialized, response) => {
             const batch = new ODataBatch({
-                url: 'http://sap.example.com/batch',
+                url: 'https://sap.example.com/batch',
                 auth: 'user:pass',
                 calls: [
                     [
@@ -208,7 +208,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
                 batchResponseType: value,
                 individualResponseType: value,
             });
-            mock.onPost('http://sap.example.com/batch').reply(
+            mock.onPost('https://sap.example.com/batch').reply(
                 200,
                 wire(
                     '--response',
@@ -236,12 +236,12 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
 
     test('retrieve propagates parameterized JSON Accept and parses JSON without a response Content-Type', async () => {
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             retrieve: [{ url: '/items', headers: { accept: 'text/plain', 'content-type': 'text/plain' } }],
             individualResponseType: 'APPLICATION/JSON;odata=verbose',
         });
-        mock.onPost('http://sap.example.com/batch').reply(
+        mock.onPost('https://sap.example.com/batch').reply(
             200,
             wire('--response', 'Content-Type: application/http', '', 'HTTP/1.1 200 OK', '', '{"id":1}', '--response--'),
             { 'content-type': 'multipart/mixed; boundary=response' }
@@ -260,7 +260,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
     test('200 with CRLF multi-changeset body parses embedded errors through the full pipeline', async () => {
         // Arrange
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             calls: [
                 [{ method: 'POST', url: '/api/a', data: { id: 1 } }],
@@ -298,7 +298,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
             '--changeset_' + ts + '_1--',
             '--batch_' + ts + '--'
         );
-        mock.onPost('http://sap.example.com/batch').reply(200, body, {
+        mock.onPost('https://sap.example.com/batch').reply(200, body, {
             'content-type': `multipart/mixed; boundary=batch_${ts}`,
         });
 
@@ -317,12 +317,12 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
     test('request reaching the transport is the exact CRLF wire format', async () => {
         // Arrange
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             calls: [[{ method: 'DELETE', url: "/Items('1')", data: null }]],
         });
         const ts = (batch as any)['boundary'] as string;
-        mock.onPost('http://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
+        mock.onPost('https://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
             'content-type': `multipart/mixed; boundary=batch_${ts}`,
         });
 
@@ -331,7 +331,7 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
 
         // Assert
         const req = mock.history.post[0];
-        expect(req.url).toBe('http://sap.example.com/batch');
+        expect(req.url).toBe('https://sap.example.com/batch');
         expect(req.data).toContain('--batch_' + ts + '\r\nContent-Type: multipart/mixed; boundary=changeset_');
         expect(req.data.endsWith('--batch_' + ts + '--')).toBe(true);
         const sent = sentHeaders(req);
@@ -343,11 +343,11 @@ describe('ODataBatch.send() end-to-end (mocked axios transport)', () => {
     test('batch-level non-2xx rejects the promise (axios validateStatus)', async () => {
         // Arrange
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             calls: [{ method: 'DELETE', url: '/Items', data: null }],
         });
-        mock.onPost('http://sap.example.com/batch').reply(400, 'Bad Request');
+        mock.onPost('https://sap.example.com/batch').reply(400, 'Bad Request');
 
         // Act & Assert - an HTTP error on the batch itself never reaches the parser
         await expect(batch.send()).rejects.toThrow();
@@ -369,13 +369,13 @@ describe('ODataBatch send() configuration semantics', () => {
         // Arrange - spread order puts ...headers first and the fixed
         // Accept/Content-Type keys after, so they always overwrite
         const batch = new ODataBatch({
-            url: 'http://sap.example.com/batch',
+            url: 'https://sap.example.com/batch',
             auth: 'user:pass',
             headers: { Accept: 'text/plain', 'Content-Type': 'text/plain', 'X-Custom': 'keep-me' } as any,
             calls: [{ method: 'DELETE', url: '/Items', data: null }],
         });
         const ts = (batch as any)['boundary'] as string;
-        mock.onPost('http://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
+        mock.onPost('https://sap.example.com/batch').reply(200, '--batch_' + ts + '--', {
             'content-type': `multipart/mixed; boundary=batch_${ts}`,
         });
 
@@ -395,7 +395,7 @@ describe('ODataBatch send() configuration semantics', () => {
         // show 'Basic'; what matters here is what ODataBatch itself composes
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
-            { url: 'http://x/batch', auth: '', calls: [{ method: 'DELETE', url: '/Items', data: null }] },
+            { url: 'https://x/batch', auth: '', calls: [{ method: 'DELETE', url: '/Items', data: null }] },
             repo
         );
 
@@ -416,7 +416,7 @@ describe('ODataBatch send() configuration semantics', () => {
         // Arrange
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
-            { url: 'http://x/batch', auth, calls: [{ method: 'DELETE', url: '/Items', data: null }] },
+            { url: 'https://x/batch', auth, calls: [{ method: 'DELETE', url: '/Items', data: null }] },
             repo
         );
 
@@ -438,7 +438,7 @@ describe('ODataBatch send() configuration semantics', () => {
             },
         };
         const batch = new ODataBatch(
-            { url: 'http://x/batch', auth: 'a:b', calls: [{ method: 'DELETE', url: '/x', data: null }] },
+            { url: 'https://x/batch', auth: 'a:b', calls: [{ method: 'DELETE', url: '/x', data: null }] },
             customRepo
         );
 
@@ -446,7 +446,7 @@ describe('ODataBatch send() configuration semantics', () => {
         await batch.send();
 
         // Assert - no HTTP call was attempted; the repository got everything
-        expect(seen[0]).toBe('http://x/batch');
+        expect(seen[0]).toBe('https://x/batch');
         expect(seen[1]).toContain('--batch_');
         expect(mock.history.post).toHaveLength(0);
     });

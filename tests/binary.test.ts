@@ -237,7 +237,7 @@ describe('binary call data (S4)', () => {
     describe('ODataBatch + repository', () => {
         test('ODataBatch.send hands the serialized Buffer to the repository', async () => {
             const repo = new DummyBatchRepo();
-            await new ODataBatch({ url: 'http://x/batch', auth: 'user:pass', calls: [binaryCall()] }, repo).send();
+            await new ODataBatch({ url: 'https://x/batch', auth: 'user:pass', calls: [binaryCall()] }, repo).send();
 
             const sent: unknown = repo.lastRequest;
             expect(Buffer.isBuffer(sent)).toBe(true);
@@ -257,7 +257,7 @@ describe('binary call data (S4)', () => {
         });
 
         test('posts the Buffer body unchanged with redirects disabled', async () => {
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             mock.onPost(url).reply(200, '', { 'content-type': 'multipart/mixed; boundary=response' });
 
             const { body } = requestsToBatch([binaryCall()], '884', JSON_OPTS);

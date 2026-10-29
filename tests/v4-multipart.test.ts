@@ -51,7 +51,7 @@ describe('OData v4 multipart Content-ID (S5)', () => {
     test('ODataBatch with protocolVersion 4.0 emits the IDs on the wire', async () => {
         const repo = new DummyBatchRepo();
         await new ODataBatch(
-            { url: 'http://x/batch', auth: 'a:b', protocolVersion: '4.0', calls: [call('/A'), call('/B')] },
+            { url: 'https://x/batch', auth: 'a:b', protocolVersion: '4.0', calls: [call('/A'), call('/B')] },
             repo
         ).send();
         expect(contentIds(repo.lastRequest)).toEqual(['1', '2']);

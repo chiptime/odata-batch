@@ -306,6 +306,7 @@ parts.
 | `asyncPolling` | `{ maxPolls?, defaultRetryAfterMs?, maxRetryAfterMs? }` | unset | Opt-in asynchronous batches. See [Asynchronous batches](#asynchronous-batches). |
 | `continueOnError` | `boolean` | unset | JSON batch only: sends `Prefer: odata.continue-on-error`. |
 | `binaryResponses` | `boolean` | `false` | Multipart only: return non-textual response parts as `Buffer`. |
+| `allowInsecureHttp` | `boolean` | `false` | Allow credentials over plain `http://` to non-loopback hosts. See [Authentication](#authentication). |
 | *(2nd constructor arg)* | `ODataBatchRepository` | axios adapter | Custom HTTP transport. See [Custom HTTP adapter](#custom-http-adapter). |
 
 ### JSON/XML media types
@@ -457,10 +458,14 @@ final answer is parsed like any batch response; an `application/http` monitor
 answer is unwrapped first, and a wrapped non-2xx status rejects.
 
 Credentials are only ever sent to the batch origin: a `Location` on another
-origin rejects **before any poll**, and redirects stay disabled. Interim
-partial results (a `202` as the last part of a multipart answer) are not
-resumed. Custom repositories receive `config.asyncPolling` and must implement
-polling themselves.
+origin rejects **before any poll**, and redirects stay disabled.
+
+Interim results are resumed (OData 4.01 §11.7.7.6): when a monitor answer is a
+multipart batch whose **last** part is an `application/http` `202 Accepted`
+with a `Location`, the earlier parts are kept and polling continues at that
+Location (same origin check, `Retry-After`, shared `maxPolls` budget). The
+result is one batch holding every part in order. Custom repositories receive
+`config.asyncPolling` and must implement polling themselves.
 
 ### Binary responses
 
@@ -506,6 +511,12 @@ before passing them. To bypass the heuristic entirely, set
 matched case-insensitively (`authorization`, `AUTHORIZATION`, ...) and is sent
 as a single canonical `Authorization` header.
 
+Credentials never travel in clear text by default: a plain `http://` url throws
+`Refusing to send credentials over http://; use https:// or set allowInsecureHttp: true`,
+except for loopback hosts (`localhost`, `127.0.0.0/8`, `[::1]`). For an internal
+service without TLS, set `allowInsecureHttp: true` explicitly. Relative urls
+(used with a custom transport) are not checked.
+
 The default axios transport **never follows redirects** (`maxRedirects: 0`):
 following one would replay the `Authorization` header to the redirect target.
 A 3xx answer rejects the promise like any other non-2xx response. If your
@@ -548,6 +559,8 @@ supply your own transport (see [Custom HTTP adapter](#custom-http-adapter)).
 | `continueOnError` on a multipart batch | `throw`: `continueOnError requires batchFormat 'json'` |
 | `binaryResponses` on a JSON batch | `throw`: `binaryResponses requires batchFormat 'multipart'` |
 | Invalid `asyncPolling` field | `throw`: `asyncPolling.<field> must be a non-negative finite number` |
+| Plain `http://` url to a non-loopback host | `throw` at construction: `Refusing to send credentials over http://; use https:// or set allowInsecureHttp: true` |
+| Non-boolean `allowInsecureHttp` | `throw`: `allowInsecureHttp must be a boolean` |
 | Async `202` without `Location` | Promise **rejects**: `Async batch response is missing Location` |
 | Async monitor on another origin | Promise **rejects** before polling: `Async monitor must be on the batch origin` |
 | Async batch still running after `maxPolls` | Promise **rejects**: `Async batch did not finish after <n> polls` |
@@ -608,6 +621,8 @@ requires the supplied bound parser; do not hardcode `BatchResponse` there.
 
 ## Migrating from 3.x (unreleased)
 
+- Use an `https://` batch url. Plain `http://` to a non-loopback host now
+  throws; set `allowInsecureHttp: true` only for internal services without TLS.
 - Move GET entries out of `calls` into `retrieve`, or into direct `operations`
   entries. GET inside a changeset now throws rather than sending invalid OData.
 - Custom repository request bodies now have type `string | Buffer`. Preserve

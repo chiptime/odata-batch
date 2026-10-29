@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- Plain `http://` batch urls to non-loopback hosts throw `Refusing to send credentials over http://; use https:// or set allowInsecureHttp: true` (every batch carries `Authorization`). Loopback hosts and relative urls are unaffected; `allowInsecureHttp: true` opts out.
 - GET methods inside `calls` or `operations` changesets now throw `GET is not allowed inside a changeset; use retrieve or operations`. Direct retrieve entries remain supported.
 - Repository request-body types widen from `string` to `string | Buffer`. Custom transports must preserve binary bytes, and grouped JSON transports must use the supplied parser instead of assuming multipart.
 
@@ -40,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (batch gaps)
 
 - `asyncPolling`: opt-in asynchronous batches (`Prefer: respond-async`, `202` + `Location` status monitor polling with `Retry-After`, capped and bounded by `maxPolls`). Monitors on another origin are rejected before any request, so credentials never leave the batch origin; `application/http` monitor answers are unwrapped byte-exactly.
+- Interim async results (OData 4.01 §11.7.7.6): a monitor answer whose last part is an `application/http` `202` with `Location` keeps its earlier parts and resumes polling there; the result is one merged batch.
 - `continueOnError` (JSON batch): sends `Prefer: odata.continue-on-error`.
 - `binaryResponses` (multipart): non-textual response parts return their exact bytes as a `Buffer`.
 - Inner responses declaring a non-JSON `Content-Type` are no longer `JSON.parse`d under a JSON accept; undeclared parts keep following the accept.

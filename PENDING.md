@@ -76,7 +76,7 @@ Cubierto además con property tests deterministas (LCG con semilla, sin dependen
 |---|---|---|
 | 8 | CI (GitHub Actions) | Excluido por decisión del usuario. Workflow mínimo cuando se decida: `npm ci` + `npm test` + `npm run lint` + `npm run mutation`. |
 | 13 | TS 7 (port nativo) | Follow-up. Bloqueado hasta que ts-jest / typescript-eslint declaren soporte oficial. |
-| 14 | Mutante sobreviviente en retrieve mode (preexistente de 2.1.0) | Observado 2026-10 (mutation 99.02%): `retrieveToBatch(retrieve, boundary, {accept})` → `{}` sobrevive porque ningún test fija el `Accept:` por part del wire retrieve. Fuera de las superficies de parser-robustness; matarlo exige test de `ODataBatch` retrieve. Los otros 3 sobrevivientes sí son equivalentes demostrables. |
+| 14 | ~~Mutante sobreviviente en retrieve mode~~ | Observado 2026-10 (mutation 99.02%): `retrieveToBatch(retrieve, boundary, {accept})` → `{}` sobrevive porque ningún test fija el `Accept:` por part del wire retrieve. Fuera de las superficies de parser-robustness; matarlo exige test de `ODataBatch` retrieve. Los otros 3 sobrevivientes sí son equivalentes demostrables. **RESUELTO (2026-10-29)**: mutation 98.63% global; 31 sobrevivientes, todos equivalentes razonados (odd/tasks/batch-close.md). |
 
 ---
 

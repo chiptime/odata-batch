@@ -619,7 +619,7 @@ sixth argument `BatchParser` (default `BatchResponse`), construct it with
 `createBatchResponse`, and call its `parseGrouped(layout)` method. JSON batch
 requires the supplied bound parser; do not hardcode `BatchResponse` there.
 
-## Migrating from 3.x (unreleased)
+## Migrating from 3.x to 4.0.0
 
 - Use an `https://` batch url. Plain `http://` to a non-loopback host now
   throws; set `allowInsecureHttp: true` only for internal services without TLS.

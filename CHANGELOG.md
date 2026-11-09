@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - Unreleased
+
 ### Security
 
 - **No redirect following in the default transport:** `ODataBatchAxiosRepository` now sends every `$batch` POST with `maxRedirects: 0`. Following a redirect could replay the `Authorization` header to another origin ([GHSA-q3jh-wrc6-jgq8](https://github.com/advisories/GHSA-q3jh-wrc6-jgq8), [GHSA-8r9p-f939-6h3c](https://github.com/advisories/GHSA-8r9p-f939-6h3c) in `follow-redirects`). This defense holds whatever `follow-redirects` version a consumer resolves.

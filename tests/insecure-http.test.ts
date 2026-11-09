@@ -17,6 +17,21 @@ describe('credentials over http:// (S1)', () => {
         expect(() => build(url)).toThrow(MESSAGE);
     });
 
+    test.each([
+        'http://0.0.0.0:8080/$batch',
+        'http://[::ffff:127.0.0.1]/$batch',
+        'http://user@evil.example/$batch',
+        ' http://evil.example/$batch',
+        'http:evil.example/path',
+        'http://evil.example\t/path',
+    ])('rejects edge-case url %j', (url) => {
+        expect(() => build(url)).toThrow(MESSAGE);
+    });
+
+    test('accepts decimal loopback, which URL canonicalizes to 127.0.0.1', () => {
+        expect(() => build('http://2130706433/$batch')).not.toThrow();
+    });
+
     test('rejects even when only a Bearer header carries the credentials', () => {
         expect(() =>
             build('http://sap.example.com/$batch', { auth: '', headers: { Authorization: 'Bearer token' } })

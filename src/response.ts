@@ -334,8 +334,8 @@ export class BatchResponse implements BatchResponseInterface {
                 return JSON.parse(payload);
             } catch {
                 // One unparseable part must never destroy the whole batch:
-                // surface the raw payload instead of throwing
-                return payload;
+                // fall through and surface the raw payload below instead of
+                // throwing
             }
         }
 

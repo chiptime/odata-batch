@@ -1,7 +1,7 @@
 {
   "name": "odata-batch",
-  "version": "3.1.0",
-  "description": "Build and parse OData V2 $batch multipart requests: multiple changesets, per-response error detection and typed results",
+  "version": "4.0.0",
+  "description": "Build, send and parse OData $batch requests: V2/V4 multipart and V4.01 JSON batch, changesets, async batches, binary parts and typed per-response results",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -23,6 +23,9 @@
     "odata",
     "odata-v2",
     "odata2",
+    "odata-v4",
+    "odata4",
+    "json-batch",
     "batch",
     "$batch",
     "multipart",

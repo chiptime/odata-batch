@@ -66,6 +66,19 @@ const retryAfterMs = (value: string | undefined, polling: AsyncPollingConfig): n
 const isApplicationHttp = (headers: unknown): boolean =>
     (headerValue(headers, 'content-type') ?? '').split(';')[0].trim().toLowerCase() === 'application/http';
 
+// RFC 9110 header field names are case-insensitive and surrounding whitespace
+// is insignificant; a line without a colon is not a header field
+const parseHeaderLines = (lines: string[]): Record<string, string> => {
+    const headers: Record<string, string> = {};
+    lines.forEach((line) => {
+        const colon = line.indexOf(':');
+        if (colon !== -1) {
+            headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+        }
+    });
+    return headers;
+};
+
 // §11.7.7.6: the monitor may answer application/http, wrapping the real
 // batch response (status line, headers incl. its Content-Type, body).
 // Binary payloads must survive byte-exactly: framing runs on a latin1 view
@@ -93,15 +106,7 @@ const unwrapHttpResponse = (monitor: {
     if (status[1].charAt(0) !== '2') {
         throw new Error(`Async batch failed with status ${status[1]}`);
     }
-    const headers: Record<string, string> = {};
-    head.split('\r\n')
-        .slice(1)
-        .forEach((line) => {
-            const colon = line.indexOf(':');
-            if (colon !== -1) {
-                headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
-            }
-        });
+    const headers = parseHeaderLines(head.split('\r\n').slice(1));
     return {
         data: typeof monitor.data === 'string' ? body : Buffer.from(body, 'latin1'),
         headers,
@@ -115,20 +120,20 @@ const multipartBoundary = (headers: Record<string, string>): string | undefined 
     if (!/^\s*multipart\//i.test(contentType)) {
         return undefined;
     }
-    const match = /(?:^|;)\s*boundary\s*=\s*(?:"([^"\r\n]*)"|([^;\r\n]+))/i.exec(contentType);
+    const match = /;\s*boundary\s*=\s*(?:"([^"\r\n]*)"|([^;\r\n]+))/i.exec(contentType);
     return match ? (match[1] ?? match[2]).trim() : undefined;
 };
 
-// Raw parts between anchored delimiters; each kept part ends with a line
-// break so it can be re-framed under another boundary unchanged
+// Raw parts between anchored delimiters. A delimiter is anchored at line
+// start, so every kept part ends with the line break that precedes the next
+// delimiter and can be re-framed under another boundary unchanged
 const splitParts = (body: string, boundary: string): string[] => {
     const delimiter = new RegExp(`^--${escapeRegExp(boundary)}(--)?[ \\t]*(?:\\r?\\n|$)`, 'gm');
     const parts: string[] = [];
     let start: number | undefined;
     for (const match of body.matchAll(delimiter)) {
         if (start !== undefined) {
-            const part = body.slice(start, match.index);
-            parts.push(/\n$/.test(part) ? part : `${part}\r\n`);
+            parts.push(body.slice(start, match.index));
         }
         if (match[1]) {
             return parts;
@@ -141,7 +146,7 @@ const splitParts = (body: string, boundary: string): string[] => {
 // §11.7.7.6: an interim monitor answer ends with an application/http
 // 202 Accepted part whose Location continues the batch
 const interimContinuation = (part: string): { location: string; retryAfter?: string } | undefined => {
-    const blocks = part.replace(/^\r?\n/, '').split(/\r?\n\r?\n/);
+    const blocks = part.split(/\r?\n\r?\n/);
     if (blocks.length < 2 || !/^content-type:\s*application\/http\b/im.test(blocks[0])) {
         return undefined;
     }
@@ -149,13 +154,7 @@ const interimContinuation = (part: string): { location: string; retryAfter?: str
     if (!/^HTTP\/1\.[01] 202\b/.test(statusLine)) {
         return undefined;
     }
-    const headers: Record<string, string> = {};
-    lines.forEach((line) => {
-        const colon = line.indexOf(':');
-        if (colon !== -1) {
-            headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
-        }
-    });
+    const headers = parseHeaderLines(lines);
     return headers.location ? { location: headers.location, retryAfter: headers['retry-after'] } : undefined;
 };
 
@@ -253,7 +252,13 @@ export class ODataBatchAxiosRepository implements ODataBatchRepository {
                 : (response as unknown as { data: string | Buffer; headers: Record<string, string> });
 
             const boundary = multipartBoundary(answer.headers);
-            const parts = boundary === undefined ? [] : splitParts(textOf(answer.data), boundary);
+            if (boundary === undefined) {
+                if (kept.length > 0) {
+                    throw new Error('Async batch interim results cannot be combined with a non-multipart final answer');
+                }
+                return answer;
+            }
+            const parts = splitParts(textOf(answer.data), boundary);
             const continuation = parts.length > 0 ? interimContinuation(parts[parts.length - 1]) : undefined;
             if (continuation) {
                 kept.push(...parts.slice(0, -1));
@@ -277,10 +282,10 @@ export class ODataBatchAxiosRepository implements ODataBatchRepository {
         answer: { data: string | Buffer; headers: Record<string, string> }
     ): { data: string | Buffer; headers: Record<string, string> } {
         const parts = [...kept, ...finalParts];
-        let boundary = `batch_merged_${randomUUID()}`;
-        while (parts.some((part) => part.includes(boundary))) {
+        let boundary: string;
+        do {
             boundary = `batch_merged_${randomUUID()}`;
-        }
+        } while (parts.some((part) => part.includes(boundary)));
         const body = `${parts.map((part) => `--${boundary}\r\n${part}`).join('')}--${boundary}--`;
         const headers = Object.fromEntries(
             Object.entries(answer.headers).filter(([key]) => key.toLowerCase() !== 'content-type')

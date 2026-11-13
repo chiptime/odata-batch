@@ -38,7 +38,7 @@ describe('ODataBatch', () => {
                     () =>
                         new ODataBatch(
                             {
-                                url: 'http://example.com/batch',
+                                url: 'https://example.com/batch',
                                 auth: 'user:pass',
                                 calls: [{ method: 'POST', url: '/items', data: {} }],
                                 [option]: value,
@@ -54,7 +54,7 @@ describe('ODataBatch', () => {
             expect(
                 () =>
                     new ODataBatch({
-                        url: 'http://example.com/batch',
+                        url: 'https://example.com/batch',
                         auth: 'user:pass',
                         retrieve: [{ url: '/items' }],
                         [option]: 'text/plain',
@@ -67,7 +67,7 @@ describe('ODataBatch', () => {
                 expect(
                     () =>
                         new ODataBatch({
-                            url: 'http://example.com/batch',
+                            url: 'https://example.com/batch',
                             auth: 'user:pass',
                             calls: [{ method: 'POST', url: '/items', data: {} }],
                             [option]: value as any,
@@ -79,7 +79,7 @@ describe('ODataBatch', () => {
         test('empty calls throws error', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [] as any[],
             };
@@ -91,7 +91,7 @@ describe('ODataBatch', () => {
         test('empty sub-array throws error', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [[] as any[]] as any[][],
             };
@@ -103,12 +103,12 @@ describe('ODataBatch', () => {
         test('multi-changeset with empty sub-array throws error', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [
                     [{ method: 'POST', url: '/api/a', data: { id: 1 } }],
                     [] as any[],
-                    [{ method: 'GET', url: '/api/b', data: null }],
+                    [{ method: 'DELETE', url: '/api/b', data: null }],
                 ] as any[][],
             };
 
@@ -119,14 +119,14 @@ describe('ODataBatch', () => {
         test('multi-changeset format is accepted', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [
                     [
                         { method: 'POST', url: '/api/a', data: { id: 1 } },
                         { method: 'POST', url: '/api/a2', data: { id: 2 } },
                     ],
-                    [{ method: 'GET', url: '/api/b', data: null }],
+                    [{ method: 'DELETE', url: '/api/b', data: null }],
                 ],
             };
 
@@ -137,11 +137,11 @@ describe('ODataBatch', () => {
         test('legacy Call[] format still works', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [
                     { method: 'POST', url: '/api/a', data: { id: 1 } },
-                    { method: 'GET', url: '/api/b', data: null },
+                    { method: 'DELETE', url: '/api/b', data: null },
                 ],
             };
 
@@ -152,9 +152,9 @@ describe('ODataBatch', () => {
         test('default repository is ODataBatchAxiosRepository', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
 
             // Act
@@ -169,9 +169,9 @@ describe('ODataBatch', () => {
         test('boundary is generated via generateBoundaryId()', () => {
             // Arrange
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const spy = jest.spyOn(boundaryModule, 'generateBoundaryId').mockReturnValue('mock-uuid-boundary');
 
@@ -203,7 +203,7 @@ describe('ODataBatch', () => {
                 try {
                     const batch = new ODataBatch(
                         {
-                            url: 'http://example.com/batch',
+                            url: 'https://example.com/batch',
                             auth: 'user:pass',
                             calls: multi ? [[call], [call]] : [call],
                             batchResponseType: 'application/xml;charset=utf-8',
@@ -226,9 +226,9 @@ describe('ODataBatch', () => {
             // Arrange
             const dummyRepo = new DummyBatchRepo();
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const batch = new ODataBatch(config, dummyRepo);
 
@@ -236,7 +236,7 @@ describe('ODataBatch', () => {
             await batch.send();
 
             // Assert
-            expect(dummyRepo.lastUrl).toBe('http://example.com/batch');
+            expect(dummyRepo.lastUrl).toBe('https://example.com/batch');
             expect(dummyRepo.lastRequest).toBeDefined();
             expect(dummyRepo.lastConfig).toBeDefined();
             expect(dummyRepo.lastConfig.headers).toBeDefined();
@@ -246,10 +246,10 @@ describe('ODataBatch', () => {
             // Arrange
             const dummyRepo = new DummyBatchRepo();
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'basic:pass',
                 headers: { Authorization: 'Bearer token123' },
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const batch = new ODataBatch(config, dummyRepo);
 
@@ -260,13 +260,62 @@ describe('ODataBatch', () => {
             expect(dummyRepo.lastConfig.headers.Authorization).toBe('Bearer token123');
         });
 
+        test.each(['authorization', 'AUTHORIZATION', 'AuthoriZation'])(
+            'header %s takes priority over constructor auth (case-insensitive)',
+            async (key) => {
+                const dummyRepo = new DummyBatchRepo();
+                const batch = new ODataBatch(
+                    {
+                        url: 'https://example.com/batch',
+                        auth: 'basic:pass',
+                        headers: { [key]: 'Bearer token123', 'X-Custom': 'kept' },
+                        calls: [{ method: 'POST', url: '/items', data: {} }],
+                    },
+                    dummyRepo
+                );
+
+                await batch.send();
+
+                // One canonical Authorization entry, the caller's, never a second Basic one
+                const authKeys = Object.keys(dummyRepo.lastConfig.headers).filter(
+                    (k) => k.toLowerCase() === 'authorization'
+                );
+                expect(authKeys).toEqual(['Authorization']);
+                expect(dummyRepo.lastConfig.headers.Authorization).toBe('Bearer token123');
+                expect(dummyRepo.lastConfig.headers['X-Custom']).toBe('kept');
+            }
+        );
+
+        test('an empty lowercase authorization header still falls back to constructor auth', async () => {
+            const dummyRepo = new DummyBatchRepo();
+            const batch = new ODataBatch(
+                {
+                    url: 'https://example.com/batch',
+                    auth: 'user:pass',
+                    headers: { authorization: '' },
+                    calls: [{ method: 'POST', url: '/items', data: {} }],
+                },
+                dummyRepo
+            );
+
+            await batch.send();
+
+            const authKeys = Object.keys(dummyRepo.lastConfig.headers).filter(
+                (k) => k.toLowerCase() === 'authorization'
+            );
+            expect(authKeys).toEqual(['Authorization']);
+            expect(dummyRepo.lastConfig.headers.Authorization).toBe(
+                `Basic ${Buffer.from('user:pass').toString('base64')}`
+            );
+        });
+
         test('includes Accept and Content-Type in config', async () => {
             // Arrange
             const dummyRepo = new DummyBatchRepo();
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             };
             const batch = new ODataBatch(config, dummyRepo);
 
@@ -282,11 +331,11 @@ describe('ODataBatch', () => {
             // Arrange
             const dummyRepo = new DummyBatchRepo();
             const config = {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [
                     [{ method: 'POST', url: '/api/a', data: { id: 1 } }],
-                    [{ method: 'GET', url: '/api/b', data: null }],
+                    [{ method: 'DELETE', url: '/api/b', data: null }],
                 ],
             };
             const batch = new ODataBatch(config, dummyRepo);
@@ -307,9 +356,9 @@ describe('ODataBatch', () => {
             test('both calls and retrieve throws error', () => {
                 // Arrange
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
-                    calls: [{ method: 'GET', url: '/items', data: null }],
+                    calls: [{ method: 'DELETE', url: '/items', data: null }],
                     retrieve: [{ url: '/items' }],
                 };
 
@@ -320,7 +369,7 @@ describe('ODataBatch', () => {
             test('neither calls nor retrieve throws error', () => {
                 // Arrange
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                 };
 
@@ -331,7 +380,7 @@ describe('ODataBatch', () => {
             test('empty retrieve throws error', () => {
                 // Arrange
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     retrieve: [] as RetrieveCall[],
                 };
@@ -343,7 +392,7 @@ describe('ODataBatch', () => {
             test('retrieve entry with a method property throws GET-only error', () => {
                 // Arrange - a Call accidentally passed where a RetrieveCall is expected
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     retrieve: [{ url: '/items', method: 'POST' } as RetrieveCall],
                 };
@@ -357,7 +406,7 @@ describe('ODataBatch', () => {
             test('retrieve entry with a data property throws GET-only error', () => {
                 // Arrange
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     retrieve: [{ url: '/items', data: { id: 1 } } as RetrieveCall],
                 };
@@ -371,7 +420,7 @@ describe('ODataBatch', () => {
             test('retrieve-only construction builds without calls', () => {
                 // Arrange
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     retrieve: [{ url: '/items' }, { url: '/items(2)' }],
                 };
@@ -386,7 +435,7 @@ describe('ODataBatch', () => {
                 // Arrange
                 const dummyRepo = new DummyBatchRepo();
                 const config = {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     retrieve: [{ url: '/items' }, { url: '/items(2)' }],
                 };
@@ -412,7 +461,7 @@ describe('ODataBatch', () => {
                 ];
                 const dummyRepo = new DummyBatchRepo(canned);
                 const batch = new ODataBatch(
-                    { url: 'http://example.com/batch', auth: 'user:pass', retrieve: [{ url: '/nope' }] },
+                    { url: 'https://example.com/batch', auth: 'user:pass', retrieve: [{ url: '/nope' }] },
                     dummyRepo
                 );
 

@@ -240,7 +240,7 @@ describe('optional grouped repository capability', () => {
         const repo = new DummyBatchRepo();
         const batch = new api.ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [{ method: 'POST', url: '/Items', data: {} }],
             },
@@ -264,7 +264,7 @@ describe('optional grouped repository capability', () => {
             ];
             const batch = new api.ODataBatch(
                 {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     ...(retrieve ? { retrieve: [{ url: '/Items' }, { url: '/Lines' }] } : { calls }),
                 },
@@ -275,7 +275,7 @@ describe('optional grouped repository capability', () => {
             expect(repo.send).not.toHaveBeenCalled();
             expect(repo.sendGrouped).toHaveBeenCalledTimes(1);
             const args = repo.sendGrouped.mock.calls[0];
-            expect(args[0]).toBe('http://example.com/batch');
+            expect(args[0]).toBe('https://example.com/batch');
             expect(args[2].headers.Accept).toBe('application/json');
             expect(args[4]).toEqual(
                 retrieve
@@ -292,7 +292,7 @@ describe('optional grouped repository capability', () => {
         const repo = { send: jest.fn(), sendGrouped: jest.fn().mockResolvedValue([]) };
         const batch = new api.ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: Array.from({ length: 3 }, () => ({ method: 'POST', url: '/Items', data: {} })),
             },

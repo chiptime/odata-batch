@@ -111,7 +111,7 @@ describe('requestsToBatch() edge cases', () => {
             makeRandomMock(42); // changeSetNum = 42
             const calls: Call[] = [
                 { method: 'POST', url: '/api/a', headers: undefined, data: { id: 1 } },
-                { method: 'GET', url: '/api/b', headers: undefined, data: null },
+                { method: 'DELETE', url: '/api/b', headers: undefined, data: null },
             ];
 
             const expected = join([
@@ -132,7 +132,7 @@ describe('requestsToBatch() edge cases', () => {
                 'Content-Type: application/http',
                 'Content-Transfer-Encoding: binary',
                 '',
-                'GET /api/b HTTP/1.1',
+                'DELETE /api/b HTTP/1.1',
                 'Content-Type: application/json',
                 'Accept: application/json',
                 '',
@@ -175,7 +175,7 @@ describe('requestsToBatch() edge cases', () => {
             makeRandomMock(42); // changeSetNum = 42
             const calls: Call[][] = [
                 [{ method: 'POST', url: '/api/a', headers: undefined, data: { id: 1 } }],
-                [{ method: 'GET', url: '/api/b', headers: undefined, data: null }],
+                [{ method: 'DELETE', url: '/api/b', headers: undefined, data: null }],
             ];
 
             const expected = join([
@@ -201,7 +201,7 @@ describe('requestsToBatch() edge cases', () => {
                 'Content-Type: application/http',
                 'Content-Transfer-Encoding: binary',
                 '',
-                'GET /api/b HTTP/1.1',
+                'DELETE /api/b HTTP/1.1',
                 'Content-Type: application/json',
                 'Accept: application/json',
                 '',
@@ -267,7 +267,7 @@ describe('requestsToBatch() edge cases', () => {
         test('lowercase accept header is overridden by options accept', () => {
             // Arrange
             makeRandomMock(42);
-            const calls: Call[] = [{ method: 'GET', url: '/api/a', headers: { accept: 'text/plain' }, data: null }];
+            const calls: Call[] = [{ method: 'DELETE', url: '/api/a', headers: { accept: 'text/plain' }, data: null }];
 
             // Act
             const result = requestsToBatch(calls, '884', JSON_OPTS);
@@ -281,7 +281,7 @@ describe('requestsToBatch() edge cases', () => {
             // Arrange
             makeRandomMock(42);
             const calls: Call[] = [
-                { method: 'GET', url: '/api/a', headers: { 'Content-Type': 'text/plain' }, data: null },
+                { method: 'DELETE', url: '/api/a', headers: { 'Content-Type': 'text/plain' }, data: null },
             ];
 
             // Act
@@ -362,18 +362,18 @@ describe('requestsToBatch() edge cases', () => {
     describe('requestsToBatch options parameter branches', () => {
         test('requestsToBatch without options generates random boundary and default options', () => {
             makeRandomMock(42);
-            const calls: Call[] = [{ method: 'GET', url: '/api/a', data: null }];
+            const calls: Call[] = [{ method: 'DELETE', url: '/api/a', data: null }];
             const result = (requestModule.requestsToBatch as any)(calls);
             expect(result.boundary).toBeDefined();
-            expect(result.body).toContain('GET /api/a HTTP/1.1');
+            expect(result.body).toContain('DELETE /api/a HTTP/1.1');
         });
 
         test('requestsToBatch with string boundary but without options uses defaults', () => {
             makeRandomMock(42);
-            const calls: Call[] = [{ method: 'GET', url: '/api/a', data: null }];
+            const calls: Call[] = [{ method: 'DELETE', url: '/api/a', data: null }];
             const result = (requestModule.requestsToBatch as any)(calls, '884');
             expect(result.boundary).toBe('884');
-            expect(result.body).toContain('GET /api/a HTTP/1.1');
+            expect(result.body).toContain('DELETE /api/a HTTP/1.1');
         });
     });
 });

@@ -32,11 +32,11 @@ describe('ODataBatchAxiosRepository', () => {
             '{}',
             '--response--',
         ].join('\r\n');
-        mock.onPost('http://example.com/batch').reply(200, body, {
+        mock.onPost('https://example.com/batch').reply(200, body, {
             'content-type': 'multipart/mixed; boundary=response',
         });
         const result = await (repo as any).sendGrouped(
-            'http://example.com/batch',
+            'https://example.com/batch',
             'request',
             { headers: {} },
             'application/json',
@@ -47,11 +47,38 @@ describe('ODataBatchAxiosRepository', () => {
         expect(mock.history.post).toHaveLength(1);
     });
 
+    describe('redirects (credential leak defense)', () => {
+        const url = 'https://example.com/batch';
+        const config = { headers: { Authorization: 'Basic dXNlcjpwYXNz' } };
+
+        test('send disables redirect following and keeps caller headers', async () => {
+            mock.onPost(url).reply(200, '', { 'content-type': 'multipart/mixed; boundary=response' });
+            await new ODataBatchAxiosRepository().send(url, 'request', config, 'application/json', BatchResponse);
+            expect(mock.history.post).toHaveLength(1);
+            expect(mock.history.post[0].maxRedirects).toBe(0);
+            expect(mock.history.post[0].headers?.Authorization).toBe('Basic dXNlcjpwYXNz');
+        });
+
+        test('sendGrouped disables redirect following', async () => {
+            mock.onPost(url).reply(200, '', { 'content-type': 'multipart/mixed; boundary=response' });
+            await new ODataBatchAxiosRepository().sendGrouped(url, 'request', config, 'application/json', []);
+            expect(mock.history.post[0].maxRedirects).toBe(0);
+        });
+
+        test('a redirect response is rejected instead of being followed', async () => {
+            mock.onPost(url).reply(302, '', { location: 'http://evil.example/batch' });
+            await expect(
+                new ODataBatchAxiosRepository().send(url, 'request', config, 'application/json', BatchResponse)
+            ).rejects.toThrow('status code 302');
+            expect(mock.history.post).toHaveLength(1);
+        });
+    });
+
     test('grouped send preserves transport rejection without retries', async () => {
         const repo = new ODataBatchAxiosRepository();
-        mock.onPost('http://example.com/batch').reply(500, 'failure');
+        mock.onPost('https://example.com/batch').reply(500, 'failure');
         await expect(
-            (repo as any).sendGrouped('http://example.com/batch', 'request', { headers: {} }, 'application/json', [
+            (repo as any).sendGrouped('https://example.com/batch', 'request', { headers: {} }, 'application/json', [
                 { kind: 'retrieve' },
             ])
         ).rejects.toThrow();
@@ -61,7 +88,7 @@ describe('ODataBatchAxiosRepository', () => {
     describe('send()', () => {
         test('mocked POST returns parsed response', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {
@@ -113,7 +140,7 @@ Accept: application/json
 
         test('passes request body and headers correctly', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {
@@ -143,7 +170,7 @@ Accept: application/json
 
         test('error passthrough for network errors', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {
@@ -161,7 +188,7 @@ Accept: application/json
 
         test('error passthrough for 5xx responses', async () => {
             // Arrange
-            const url = 'http://example.com/batch';
+            const url = 'https://example.com/batch';
             const batchRequest = '--batch_123\r\n\r\n--batch_123--';
             const config = {
                 headers: {

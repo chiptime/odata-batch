@@ -127,7 +127,7 @@ describe('FR-01 & FR-08: CSPRNG boundary generation and collision guards', () =>
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [{ method: 'POST', url: '/items', headers: {}, data: { text: '--batch_batch-col-1' } }],
             },

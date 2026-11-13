@@ -48,7 +48,7 @@ describe('public API surface (src/index)', () => {
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [[{ method: 'POST', url: '/api/a', data: { id: 1 } }]],
             },
@@ -69,7 +69,7 @@ describe('public API surface (src/index)', () => {
         const retrieve: RetrieveCall[] = [{ url: '/api/a' }, { url: '/api/b' }];
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 retrieve,
             },
@@ -117,7 +117,7 @@ describe('ODataBatch response-type mapping', () => {
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [{ method: 'POST', url: '/items', data }],
                 batchResponseType: value,
@@ -139,9 +139,9 @@ describe('ODataBatch response-type mapping', () => {
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
             },
             repo
         );
@@ -163,9 +163,9 @@ describe('ODataBatch response-type mapping', () => {
         // Arrange
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
                 batchResponseType: 'json',
                 individualResponseType: 'json',
             },
@@ -182,9 +182,9 @@ describe('ODataBatch response-type mapping', () => {
     test('legacy call objects exposing a length property are not mistaken for changeset sub-arrays', () => {
         // Arrange - Array.isArray discriminates, not duck-typing on .length
         const batch = new ODataBatch({
-            url: 'http://example.com/batch',
+            url: 'https://example.com/batch',
             auth: 'user:pass',
-            calls: [{ method: 'GET', url: '/items', data: null, length: 0 } as any],
+            calls: [{ method: 'DELETE', url: '/items', data: null, length: 0 } as any],
         });
 
         // Act & Assert
@@ -194,9 +194,9 @@ describe('ODataBatch response-type mapping', () => {
         // Arrange
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
                 batchResponseType: 'xml',
             },
             new DummyBatchRepo()
@@ -214,9 +214,9 @@ describe('ODataBatch response-type mapping', () => {
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
-                calls: [{ method: 'GET', url: '/items', data: null }],
+                calls: [{ method: 'DELETE', url: '/items', data: null }],
                 individualResponseType: 'xml',
             },
             repo
@@ -235,7 +235,7 @@ describe('ODataBatch response-type mapping', () => {
         const repo = new DummyBatchRepo();
         const batch = new ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 calls: [{ method: 'POST', url: '/items', data: '<item/>' }],
                 batchResponseType: 'xml',

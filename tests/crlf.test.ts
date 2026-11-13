@@ -5,7 +5,7 @@ import { DummyBatchRepo } from './helpers';
 describe('FR-02 & FR-03: CRLF injection defense-in-depth', () => {
     const baseCalls = [{ method: 'POST', url: '/items', headers: {}, data: {} }];
     const baseOpts = {
-        url: 'http://example.com/batch',
+        url: 'https://example.com/batch',
         auth: 'user:pass',
         calls: baseCalls,
     };
@@ -86,7 +86,7 @@ describe('FR-02 & FR-03: CRLF injection defense-in-depth', () => {
             expect(() => {
                 new ODataBatch(
                     {
-                        url: 'http://example.com/batch',
+                        url: 'https://example.com/batch',
                         auth: 'user:pass',
                         retrieve: [{ url: '/items' }],
                         headers: { 'X-Bad': 'v\r\n' },
@@ -98,7 +98,7 @@ describe('FR-02 & FR-03: CRLF injection defense-in-depth', () => {
             expect(() => {
                 new ODataBatch(
                     {
-                        url: 'http://example.com/batch',
+                        url: 'https://example.com/batch',
                         auth: 'user:pass',
                         operations: [{ url: '/items' }],
                         headers: { 'X-Bad': 'v\r\n' },

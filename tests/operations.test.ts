@@ -244,7 +244,7 @@ describe('ODataBatch mixed operations mode', () => {
         const repo = { send: jest.fn(), sendGrouped: jest.fn().mockResolvedValue(result) };
         const batch = new api.ODataBatch(
             {
-                url: 'http://example.com/batch',
+                url: 'https://example.com/batch',
                 auth: 'user:pass',
                 operations: [{ url: '/a' }, [{ method: 'POST', url: '/b', data: {} }], { url: '/c' }],
             } as any,
@@ -261,7 +261,7 @@ describe('ODataBatch mixed operations mode', () => {
     });
 
     test('legacy calls/retrieve remain mutually exclusive with operations', () => {
-        const opts = { url: 'http://x/batch', auth: 'user:pass' };
+        const opts = { url: 'https://x/batch', auth: 'user:pass' };
         expect(
             () =>
                 new api.ODataBatch(
@@ -284,7 +284,7 @@ describe('ODataBatch mixed operations mode', () => {
             expect(
                 () =>
                     new api.ODataBatch(
-                        { url: 'http://x/batch', auth: 'user:pass', operations } as any,
+                        { url: 'https://x/batch', auth: 'user:pass', operations } as any,
                         new DummyBatchRepo()
                     )
             ).toThrow('No calls have been passed');
@@ -357,7 +357,7 @@ describe('ODataBatch mixed operations mode', () => {
         try {
             const batch = new api.ODataBatch(
                 {
-                    url: 'http://example.com/batch',
+                    url: 'https://example.com/batch',
                     auth: 'user:pass',
                     operations: [{ url: '/a' }, [{ method: 'POST', url: '/b', data: { x: 1 } }], { url: '/c' }],
                 } as any,
